@@ -56,22 +56,38 @@ Commands inside a conversation:
 | `/guard show` | Restore the dock after `×` hid it |
 | `/guard reset` | Clear the current check/verdict |
 
+### Install the skill (for other people)
+
+Clone and run the installer — it copies `skill/` into the right home for Claude
+Code, Codex, or both:
+
+```sh
+git clone https://github.com/Arid-G1FT/ctx-handoff-sentinel.git
+cd ctx-handoff-sentinel
+
+# macOS / Linux
+./install.sh --both        # --claude / --codex to pick one, --force to overwrite
+
+# Windows (install.cmd is a thin wrapper around install.ps1)
+install.cmd -Force
+```
+
+**No git?** GitHub → **Code → Download ZIP**, extract, then run the same
+installer from the extracted folder.
+
+**No installer?** Copy `skill/` to `~/.claude/skills/ctx-guard` (Claude Code) or
+`~/.codex/skills/ctx-guard` (Codex). That is the whole install: a folder with
+`SKILL.md` plus scripts. No Node, no npm; Python 3.9+ is optional.
+
+The installer respects `CLAUDE_SKILLS_DIR` and `CODEX_HOME` when you keep skills
+somewhere else.
+
 ### Claude Code
 
-```sh
-mkdir -p ~/.claude/skills
-cp -r skill ~/.claude/skills/ctx-guard
-```
-
-Then run `/ctx-guard`, or just ask "should I start a new conversation?" — the
-description lets Claude load it automatically.
+After installing, run `/ctx-guard`, or just ask "should I start a new
+conversation?" — the description lets Claude load it automatically.
 
 ### Codex
-
-```sh
-mkdir -p ~/.codex/skills
-cp -r skill ~/.codex/skills/ctx-guard
-```
 
 Codex loads `~/.codex/skills/<name>/SKILL.md` with the same Agent Skills format.
 Invoke it explicitly (`ctx-guard`) or let it trigger from the description.

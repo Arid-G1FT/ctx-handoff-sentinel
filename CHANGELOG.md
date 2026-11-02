@@ -3,6 +3,15 @@
 All notable changes to this project. The plugin and the skill share a version
 until they diverge.
 
+## Unreleased
+
+- **One-command installers.** `install.sh` (macOS/Linux) and `install.cmd` /
+  `install.ps1` (Windows) copy the skill into `~/.claude/skills/ctx-guard`,
+  `~/.codex/skills/ctx-guard`, or both. They honour `CLAUDE_SKILLS_DIR` and
+  `CODEX_HOME`, skip `__pycache__`, and refuse to overwrite without `--force`.
+- **Download docs** for people who do not clone: GitHub ZIP, manual copy, and
+  the "no Node / no Python required" note.
+
 ## 0.2.0 — 2026-11-02
 
 ### Plugin (`dsh-plugin`)

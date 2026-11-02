@@ -47,21 +47,35 @@ dsh plugin --profile desktop add link:"$PWD/dsh-plugin"
 | `/guard show` | 恢复被 `×` 隐藏的哨兵条 |
 | `/guard reset` | 清空当前自检/判定 |
 
+### 别人怎么装（Claude Code / Codex / 任意宿主）
+
+克隆后跑一个安装脚本，它会自动把 `skill/` 放进对应目录（可只装一个，或两个都装）：
+
+```sh
+git clone https://github.com/Arid-G1FT/ctx-handoff-sentinel.git
+cd ctx-handoff-sentinel
+
+# macOS / Linux
+./install.sh --both        # --claude / --codex 只装一个；--force 覆盖旧版
+
+# Windows（install.cmd 是 install.ps1 的包装，绕过执行策略）
+install.cmd -Force
+```
+
+**不想用 git**：GitHub 页面 → **Code → Download ZIP** → 解压 → 在解压目录里跑同一个安装脚本。
+
+**连脚本都不想跑**：`skill/` 本身就是完整的 skill 目录，直接复制到
+`~/.claude/skills/ctx-guard`（Claude Code）或 `~/.codex/skills/ctx-guard`
+（Codex）即可。不需要 Node、不需要 npm；Python 3.9+ 是可选的——没有 Python
+时 skill 会按 `references/policy.md` 手工判分。
+
+安装脚本支持 `CLAUDE_SKILLS_DIR`、`CODEX_HOME` 环境变量，技能目录不在默认位置时用它们。
+
 ### Claude Code
 
-```sh
-mkdir -p ~/.claude/skills
-cp -r skill ~/.claude/skills/ctx-guard
-```
-
-然后输入 `/ctx-guard`，或者直接问「是不是该开新对话了」——描述会让 Claude 自动加载。
+装完后输入 `/ctx-guard`，或者直接问「是不是该开新对话了」——描述会让 Claude 自动加载。
 
 ### Codex
-
-```sh
-mkdir -p ~/.codex/skills
-cp -r skill ~/.codex/skills/ctx-guard
-```
 
 Codex 读取 `~/.codex/skills/<name>/SKILL.md`，同一套 Agent Skills 格式。可以显式调用，也可以靠描述自动触发。
 

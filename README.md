@@ -29,20 +29,36 @@ The model's own verdict is the baseline. Evidence only overrides it on hard
 contradictions — a few omitted scratch files never turn a healthy conversation
 yellow.
 
-## Install · 安装
+## Get it · 获取
+
+**Clone + one-command installer** (macOS / Linux / Windows):
 
 ```sh
-# DeepSeek Harness
-dsh plugin --profile desktop add link:"$PWD/dsh-plugin"
+git clone https://github.com/Arid-G1FT/ctx-handoff-sentinel.git
+cd ctx-handoff-sentinel
 
-# Claude Code
-cp -r skill ~/.claude/skills/ctx-guard
+# macOS / Linux
+./install.sh --both        # or --claude / --codex; --force to overwrite
 
-# Codex
-cp -r skill ~/.codex/skills/ctx-guard
+# Windows (double-click install.cmd also works)
+install.cmd -Force
 ```
 
-Then run `/ctx-guard` (skill) or `/guard check` (DSH).
+**No git? Download the ZIP**: GitHub → **Code → Download ZIP** → extract → run
+`install.sh` / `install.cmd` from the extracted folder.
+
+**No installer needed**: the skill is just files. Copy `skill/` into
+`~/.claude/skills/ctx-guard` (Claude Code) or `~/.codex/skills/ctx-guard`
+(Codex). No Node, no npm — Python 3.9+ is optional (only for the verdict
+script; the skill falls back to applying the policy by hand).
+
+**DeepSeek Harness plugin**:
+
+```sh
+dsh plugin --profile desktop add link:"$PWD/dsh-plugin"
+```
+
+Requires restarting the app afterwards.
 
 ## Read more · 详细文档
 
