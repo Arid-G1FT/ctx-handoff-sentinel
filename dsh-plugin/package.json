@@ -1,0 +1,52 @@
+{
+  "name": "@local/dsh-context-guard",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "上下文交接哨兵：配合 dsh-context，在每次压缩后做三项行为自检（约束 / 已改文件 / 下一步+验证命令），判定 🟢🟡🔴 并生成交接单。Context handoff guard for DeepSeek Harness.",
+  "license": "MIT",
+  "icon": "icon.svg",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "context",
+    "handoff",
+    "compaction"
+  ],
+  "engines": {
+    "dsh": ">=0.2.0-rc.2 || >=0.2.1-rc.2"
+  },
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/core.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.2": "compatible",
+        "0.2.1-rc.5": "compatible"
+      }
+    }
+  }
+}

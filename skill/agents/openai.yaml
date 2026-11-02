@@ -1,0 +1,5 @@
+interface:
+  display_name: "Context guard"
+  short_description: "Behavioral self-check before a handoff"
+policy:
+  allow_implicit_invocation: true

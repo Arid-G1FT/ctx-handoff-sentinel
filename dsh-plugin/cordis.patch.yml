@@ -1,0 +1,28 @@
+# dsh-context-guard: after each compaction, run the three behavioral tests.
+- insert:
+    - id: dsh-context-guard
+      name: '@local/dsh-context-guard'
+      config:
+        enabled: true
+        # true: queue the three-test probe automatically after a successful compaction
+        autoProbe: true
+        # true: run the self-check in a fork child and return only the verdict,
+        # so the A/B/C answer never appears in the conversation. false = legacy
+        # in-conversation probe (visible Q&A).
+        backgroundProbe: true
+        # subagent backend used for the background review ('fork' inherits this
+        # conversation's completed turns; 'spawn' starts fresh and is not a
+        # memory test).
+        probeProvider: 'fork'
+        # hard cap for one background self-check
+        probeTimeoutMs: 120000
+        # small settle delay before the next-turn probe
+        probeDelayMs: 1200
+        # do not auto-probe again within 10 minutes
+        cooldownMs: 600000
+        # only root conversations, not every subagent session
+        rootsOnly: true
+        # inject a short model-facing reminder after a manual /guard verdict
+        injectAdvice: true
+        # handoff briefs land under <session cwd>/.dsh-handoff
+        handoffDir: '.dsh-handoff'
