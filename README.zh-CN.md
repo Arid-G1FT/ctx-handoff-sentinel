@@ -140,6 +140,10 @@ python -m unittest discover -s skill/tests -p "test_*.py"
 
 一句话版：把 `engines.dsh` 更新到实测过的版本 → 跑测试 → 重启 → `/guard check` 冒烟 → 折叠语义变了就升 `STATE_VERSION`。
 
+## 上架 DSH 插件市场
+
+插件的市场条目和提交流程已经准备好，见 [`docs/publishing.md`](docs/publishing.md)。目前**还没上架**：市场要求仓库创建满 1 天，这个仓库要到 `2026-11-03 23:09`（本地时间）之后才能提 PR。
+
 ## License
 
 MIT — 见 [LICENSE](LICENSE)。

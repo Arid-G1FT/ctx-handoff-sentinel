@@ -65,6 +65,7 @@ Requires restarting the app afterwards.
 - [English README](README.en.md) — full install, usage, verdict policy, tests
 - [中文 README](README.zh-CN.md) — 完整安装、用法、判定规则、测试
 - [Keeping up with DSH releases](docs/upgrading-dsh.md) — 升级维护清单
+- [Publishing to the DSH plugin market](docs/publishing.md) — 上架插件市场的步骤
 - [Verdict policy](skill/references/policy.md) — 判定阈值与取向
 
 ## Layout · 目录

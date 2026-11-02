@@ -167,6 +167,13 @@ Short version: update `engines.dsh` to the releases you actually tested, run the
 tests, restart the app, run `/guard check` once, and bump the projection
 `STATE_VERSION` whenever the fold semantics change.
 
+## DSH plugin market
+
+The plugin is prepared for the curated market registry; the entry file and the
+submission checklist live in [`docs/publishing.md`](docs/publishing.md). It is
+not listed yet because the market requires the repository to be at least one day
+old.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
