@@ -252,7 +252,7 @@ test('view is stable for unchanged state', () => {
   const second = buildView(state)
   assert.notEqual(first, second) // buildView returns a fresh object; the plugin caches it by state
   assert.equal(first.headline, second.headline)
-  assert.equal(first.v, 5)
+  assert.equal(first.v, 6)
 })
 
 test('status text is readable', () => {
@@ -392,6 +392,77 @@ test('/guard show bumps the dock epoch so a hidden dock can return', () => {
   state = applyGuardEvent(state, event('command/done', { commandId: 'cmd-1', kind: 'success', text: 'ok' }, 31))
   assert.equal(state.dockEpoch, 1)
   assert.equal(buildView(state).dockEpoch, 1)
+})
+
+test('report carries the optional handoff fields', () => {
+  const report = parseReport(
+    'DSH_GUARD_JSON: ' + JSON.stringify({
+      verdict: 'green',
+      objective: 'ship the parser',
+      constraints: [],
+      files: [],
+      done: ['parser built and fuzzed'],
+      verified: [{ command: 'npm test', result: '12 passed' }],
+      decisions: [{ decision: 'use a queue', reason: 'API rate limits', rejected: false }],
+      failedAttempts: ['polling hit 429'],
+      nextStep: 'wire it into the CLI',
+      verify: ['npm test'],
+      unknowns: [],
+    }),
+    10,
+    11,
+    null,
+  )
+  assert.equal(report.objective, 'ship the parser')
+  assert.deepEqual(report.done, ['parser built and fuzzed'])
+  assert.equal(report.verified[0].result, '12 passed')
+  assert.equal(report.decisions[0].decision, 'use a queue')
+  assert.equal(report.failedAttempts[0], 'polling hit 429')
+})
+
+test('handoff markdown uses the seven-section framework', () => {
+  const state = compact(baseState())
+  state.report = parseReport(
+    'DSH_GUARD_JSON: ' + JSON.stringify({
+      verdict: 'yellow',
+      objective: 'ship the parser',
+      constraints: [{ text: 'do not touch the public API', source: 'user', certain: true }],
+      files: [{ path: 'src/parser.js', change: 'added AST walker', reason: 'parser rewrite', certain: true }],
+      done: ['parser built and fuzzed'],
+      verified: [{ command: 'npm test', result: '12 passed' }],
+      decisions: [
+        { decision: 'use a queue', reason: 'API rate limits', rejected: false },
+        { decision: 'rewrite with regexes', reason: 'unmaintainable', rejected: true },
+      ],
+      failedAttempts: ['polling hit 429'],
+      nextStep: 'wire it into the CLI',
+      verify: ['npm test'],
+      unknowns: ['flag default'],
+    }),
+    10,
+    11,
+    null,
+  )
+  state.report.assessment = assessReport(state, state.report)
+  const markdown = buildHandoffMarkdown({ state, sessionId: 'session-1' })
+  for (const heading of [
+    '## 1. 目标与完成标准',
+    '## 2. 当前状态',
+    '## 3. 关键决策与理由',
+    '## 4. 涉及文件清单',
+    '## 5. 已知坑与失败尝试',
+    '## 6. 下一步',
+    '## 7. 约束',
+    '## 新对话开场白',
+  ]) {
+    assert.ok(markdown.includes(heading), `missing ${heading}`)
+  }
+  assert.match(markdown, /ship the parser/)
+  assert.match(markdown, /use a queue/)
+  assert.match(markdown, /rewrite with regexes/)
+  assert.match(markdown, /polling hit 429/)
+  assert.match(markdown, /12 passed/)
+  assert.match(markdown, /do not touch the public API/)
 })
 
 test('activation output flattens to text', () => {

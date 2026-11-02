@@ -55,6 +55,14 @@ const DEFAULTS = {
   backgroundProbe: true,
   probeProvider: 'fork',
   probeTimeoutMs: 120_000,
+  // Structural triggers decide *when* to test; they never grade the result.
+  // Fire a background check when the next request would use this much of the
+  // window, and/or every N steps. No compaction required.
+  pressureProbe: true,
+  pressureThreshold: 0.6,
+  stepProbeInterval: 0,
+  // When a check lands on red, ask the user whether to write a handoff.
+  handoffOffer: true,
 }
 
 const VIEW_CACHE = new WeakMap()
@@ -91,6 +99,10 @@ function normalizeOptions(config) {
         ? raw.probeProvider.trim()
         : DEFAULTS.probeProvider,
     probeTimeoutMs: numberOption(raw.probeTimeoutMs, DEFAULTS.probeTimeoutMs, 5_000, 10 * 60 * 1000),
+    pressureProbe: boolOption(raw.pressureProbe, DEFAULTS.pressureProbe),
+    pressureThreshold: numberOption(raw.pressureThreshold, DEFAULTS.pressureThreshold, 0.1, 0.95),
+    stepProbeInterval: numberOption(raw.stepProbeInterval, DEFAULTS.stepProbeInterval, 0, 1000),
+    handoffOffer: boolOption(raw.handoffOffer, DEFAULTS.handoffOffer),
   }
 }
 
@@ -140,6 +152,8 @@ export function apply(ctx, config) {
 
   const timers = new Map()
   const lastAutoAt = new Map()
+  const lastOfferAt = new Map()
+  const stepCounts = new Map()
 
   /** Read the guard projection state; never throw into a command or event handler. */
   const readState = (session) => {
@@ -308,26 +322,61 @@ export function apply(ctx, config) {
     return true
   }
 
-  /** Run the auto-probe after a compaction settles. */
-  const maybeAutoProbe = (session, compactionSeq) => {
+  /**
+   * Ask the user, in-conversation, whether to write a handoff.
+   *
+   * Injected without waking the driver: it lands as a notice, and the user's
+   * next reply authorises the model to write the document. The question names
+   * the sections so "写交接单" is enough of an answer.
+   */
+  const offerHandoff = (session, agent, outcome) => {
+    if (!options.handoffOffer) return
+    if (outcome.assessment === null || outcome.assessment.level !== 'red') return
+    if (agent === undefined || typeof agent.inject !== 'function') return
+    const last = lastOfferAt.get(session.id) ?? 0
+    if (Date.now() - last < options.cooldownMs) return
+    lastOfferAt.set(session.id, Date.now())
+    const text = [
+      '🔴 交接哨兵判定为红：上下文已经明显不可靠，建议现在交接。',
+      '',
+      '要我写交接单吗？回复「写交接单」我就生成一份，包含：',
+      '- 目标与完成标准（可验收）',
+      '- 当前状态：已完成什么、验证过什么（命令 + 结果）',
+      '- 关键决策与理由，含被否决的方案',
+      '- 涉及文件清单：路径 + 改了什么 + 为什么',
+      '- 已知坑与失败尝试',
+      '- 下一步 3–5 条具体动作',
+      '- 不可动约束（风格、环境、不能碰的部分）',
+      '',
+      '新对话直接读这份文件即可，不用再重述项目背景。回复「不用」继续当前工作；也可以直接输入 `/guard handoff`。',
+    ].join('\n')
+    agent.inject(
+      createInboxMessage({
+        content: [{ type: 'text', text }],
+        source: {
+          kind: PROBE_SOURCE,
+          form: 'notice',
+          summary: '🔴 要生成交接单吗？回复「写交接单」',
+        },
+      }),
+    )
+  }
+
+  /**
+   * One automatic self-check, shared by every structural trigger (compaction,
+   * context pressure, step interval). The trigger only decides *when*; the
+   * verdict never depends on it.
+   */
+  const runAutoProbe = (session, reason = 'auto') => {
     const agent = agentOf(session)
     if (agent === undefined) return
     if (!isRootSession(session)) return
-    const state = readState(session)
-    if (state.probe.status !== 'due') return
-    if (state.probe.forCompactionSeq !== compactionSeq) return
-    if (state.lastCompaction?.seq !== compactionSeq) return
-    if (state.lastCompaction?.failed === true) return
     const now = Date.now()
-    if (state.probe.promptAt !== null && now - state.probe.promptAt < options.cooldownMs) {
-      logger.info('dsh-context-guard: compaction probe is within the cooldown, leaving it due')
-      return
-    }
+    const state = readState(session)
+    if (state.probe.status === 'queued') return
+    if (state.probe.answerAt !== null && now - state.probe.answerAt < options.cooldownMs) return
     const last = lastAutoAt.get(session.id) ?? 0
-    if (now - last < options.cooldownMs) {
-      logger.info('dsh-context-guard: auto probe is within the cooldown, leaving it due')
-      return
-    }
+    if (now - last < options.cooldownMs) return
     lastAutoAt.set(session.id, now)
 
     const run = async () => {
@@ -341,10 +390,11 @@ export function apply(ctx, config) {
           return
         }
         try {
-          const outcome = await runBackgroundProbe(session, agent, 'auto')
+          const outcome = await runBackgroundProbe(session, agent, reason)
           if (outcome !== null) {
             deliverVerdict(agent, outcome)
-            logger.info(`dsh-context-guard: background verdict delivered for ${session.id}`)
+            offerHandoff(session, agent, outcome)
+            logger.info(`dsh-context-guard: background verdict delivered for ${session.id} (${reason})`)
             return
           }
           logger.warn('dsh-context-guard: background probe produced no verdict; leaving the probe due')
@@ -356,7 +406,7 @@ export function apply(ctx, config) {
       }
       try {
         queueProbe(agent, 'auto')
-        logger.info(`dsh-context-guard: auto probe queued for ${session.id} after compaction seq ${compactionSeq}`)
+        logger.info(`dsh-context-guard: auto probe queued for ${session.id} (${reason})`)
       } catch (error) {
         logger.warn(`dsh-context-guard: auto probe failed: ${String(error)}`)
       }
@@ -364,6 +414,48 @@ export function apply(ctx, config) {
     void run().catch((error) => {
       logger.warn(`dsh-context-guard: auto probe crashed: ${String(error)}`)
     })
+  }
+
+  /** Run the auto-probe after a compaction settles. */
+  const maybeAutoProbe = (session, compactionSeq) => {
+    const state = readState(session)
+    if (state.probe.status !== 'due') return
+    if (state.probe.forCompactionSeq !== compactionSeq) return
+    if (state.lastCompaction?.seq !== compactionSeq) return
+    if (state.lastCompaction?.failed === true) return
+    const now = Date.now()
+    if (state.probe.promptAt !== null && now - state.probe.promptAt < options.cooldownMs) {
+      logger.info('dsh-context-guard: compaction probe is within the cooldown, leaving it due')
+      return
+    }
+    runAutoProbe(session, 'compaction')
+  }
+
+  /** Current request size as a fraction of the model window, when measurable. */
+  const pressureOf = (session, state) => {
+    const meter = serviceOf('tokenMeter')
+    if (meter === undefined || typeof meter.measure !== 'function') return null
+    let measurement
+    try {
+      measurement = meter.measure(session)
+    } catch {
+      return null
+    }
+    const total = typeof measurement?.totalTokens === 'number' ? measurement.totalTokens : null
+    const window = typeof state.request?.contextWindow === 'number' ? state.request.contextWindow : null
+    if (total === null || window === null || window <= 0) return null
+    return total / window
+  }
+
+  /** Structural trigger: context pressure or step interval, no compaction needed. */
+  const maybePressureProbe = (session) => {
+    if (!options.pressureProbe) return
+    if (agentOf(session) === undefined || !isRootSession(session)) return
+    const state = readState(session)
+    const ratio = pressureOf(session, state)
+    if (ratio === null || ratio < options.pressureThreshold) return
+    logger.info(`dsh-context-guard: pressure ${Math.round(ratio * 100)}% crossed threshold, running a check`)
+    runAutoProbe(session, 'pressure')
   }
 
   /** Defer the probe so the compaction turn has a chance to settle. */
@@ -388,7 +480,7 @@ export function apply(ctx, config) {
   ctx.sessionProjections.register({
     key: 'contextGuard',
     stateSchema,
-    stateVersion: 5,
+    stateVersion: 6,
     init: (header) => initialGuardState(header),
     apply: applyGuardEvent,
     wire: {
@@ -397,12 +489,35 @@ export function apply(ctx, config) {
     },
   })
 
-  // Trigger: a successful compaction is the moment the model's working memory
-  // was rewritten. This is a trigger, not a verdict.
+  // Triggers: a successful compaction means working memory was rewritten;
+  // context pressure and the step interval catch long sessions that never
+  // compact. All three only decide *when* to test — never how to grade.
   ctx.on('session/event', (session, event) => {
-    if (event?.type !== 'compaction/end') return
-    if (event.data?.error !== undefined && event.data?.error !== null) return
-    scheduleAutoProbe(session, event.seq)
+    const type = event?.type
+    if (type === 'compaction/end') {
+      if (event.data?.error !== undefined && event.data?.error !== null) return
+      scheduleAutoProbe(session, event.seq)
+      return
+    }
+    if (type === 'step/end') {
+      const count = (stepCounts.get(session.id) ?? 0) + 1
+      stepCounts.set(session.id, count)
+      if (options.stepProbeInterval > 0 && count % options.stepProbeInterval === 0) {
+        try {
+          runAutoProbe(session, 'steps')
+        } catch (error) {
+          logger.warn(`dsh-context-guard: step trigger failed: ${String(error)}`)
+        }
+      }
+      return
+    }
+    if (type === 'turn/end') {
+      try {
+        maybePressureProbe(session)
+      } catch (error) {
+        logger.warn(`dsh-context-guard: pressure trigger failed: ${String(error)}`)
+      }
+    }
   })
 
   ctx.commands.register({
@@ -468,6 +583,7 @@ export function apply(ctx, config) {
               }
             }
             deliverVerdict(agent, outcome)
+            offerHandoff(session, agent, outcome)
             // `/guard check` returns the full state of record: a separate
             // `/guard status` run is no longer needed to see the verdict.
             return { kind: 'success', text: buildStatusText(withFreshReport(state, outcome)) }

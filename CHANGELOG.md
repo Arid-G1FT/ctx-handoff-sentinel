@@ -5,6 +5,22 @@ until they diverge.
 
 ## Unreleased
 
+- **Pressure and step triggers.** Besides compaction, a background check now
+  fires when the next request would use `pressureThreshold` (default 60%) of the
+  model window, or every `stepProbeInterval` steps. Long sessions that never
+  compact are no longer untested; the trigger still never grades the result.
+- **Red asks for a handoff.** On 🔴 the plugin injects a notice asking whether to
+  write a handoff document, listing the seven sections it will contain. The
+  user's "写交接单" authorises the model to write it; the next session reads the
+  file instead of re-hearing the project background.
+- **Seven-section handoff framework.** `buildHandoffMarkdown` now emits
+  objective/acceptance, current state with verified commands and results,
+  decisions (including rejected options), files with reasons, known traps and
+  failed attempts, 3–5 next steps, and constraints. The probe's optional machine
+  fields (`objective`, `done`, `verified`, `decisions`, `failedAttempts`) feed it
+  directly; the skill's `handoff.py` mirrors the same sections.
+- Projection `STATE_VERSION` 5 → 6 so existing sessions re-fold with the richer
+  report fields.
 - **One-command installers.** `install.sh` (macOS/Linux) and `install.cmd` /
   `install.ps1` (Windows) copy the skill into `~/.claude/skills/ctx-guard`,
   `~/.codex/skills/ctx-guard`, or both. They honour `CLAUDE_SKILLS_DIR` and

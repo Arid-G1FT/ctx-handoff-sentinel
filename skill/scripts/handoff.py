@@ -127,7 +127,26 @@ def render(report: dict, root: str, created: str, verdict: dict | None) -> str:
         reasons = verdict.get("reasons") or []
         if reasons:
             out.append("- 证据提示：" + "；".join(reasons))
-    out.append(f"- 已完成：{report.get('done') or '（未提供，请核对 git 工作区）'}")
+    done = report.get("done") or []
+    if isinstance(done, str):
+        done = [done]
+    if done:
+        out.append("- 已完成：")
+        out.extend(f"  - {item}" for item in done if str(item).strip())
+    else:
+        out.append("- 已完成：（未提供，请核对 git 工作区）")
+    verified = report.get("verified") or []
+    if verified:
+        out.append("- 已验证：")
+        for entry in verified:
+            if isinstance(entry, dict):
+                command = str(entry.get("command") or "").strip()
+                result = str(entry.get("result") or "").strip()
+                out.append(f"  - `{command}`" + (f" → {result}" if result else ""))
+            elif str(entry).strip():
+                out.append(f"  - {entry}")
+    else:
+        out.append("- 已验证：（没有记录；交接后先跑一遍验证命令）")
     out.append("")
 
     out.append("## 4. 改动文件与原因")

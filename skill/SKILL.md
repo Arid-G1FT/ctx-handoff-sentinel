@@ -43,6 +43,8 @@ not the exam.
      "objective": "one line: what this session set out to finish",
      "constraints": [{"text": "do not touch X", "source": "user", "certain": true}],
      "files": [{"path": "src/a.ts", "change": "added null guard", "reason": "crash on empty input", "certain": true}],
+     "done": ["parser built and fuzzed"],
+     "verified": [{"command": "npm test", "result": "12 passed"}],
      "nextStep": "run the migration and check the failing test",
      "verify": ["npm test -- src/a.test.ts"],
      "unknowns": ["whether the staging flag was enabled"],
@@ -52,8 +54,9 @@ not the exam.
    }
    ```
 
-   `objective`, `decisions`, and `failedAttempts` are optional but make the
-   handoff far more useful.
+   `objective`, `done`, `verified`, `decisions`, and `failedAttempts` are optional
+   but they are exactly what the handoff document needs — without them the next
+   session re-derives the project from scratch.
 4. **Run the evidence check** from the workspace root:
 
    ```sh

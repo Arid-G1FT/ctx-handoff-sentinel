@@ -29,7 +29,7 @@ export const ADVICE_MARKER = '[[DSH-CONTEXT-GUARD:ADVICE]]'
  */
 export const REPORT_FIELD = 'guardReport'
 /** Wire/state semantic version. Bump when the fold semantics change. */
-export const STATE_VERSION = 5
+export const STATE_VERSION = 6
 
 const MAX_FILES = 200
 const MAX_PINS = 20
@@ -67,6 +67,14 @@ function numberOr(value, fallback) {
 
 function stringOr(value, fallback = '') {
   return typeof value === 'string' ? value : fallback
+}
+
+function stringArray(value, max) {
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? [value] : []
+  return list
+    .filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.trim())
+    .slice(0, max)
 }
 
 function touch(state, patch, time) {
@@ -652,6 +660,36 @@ function normalizeReport(raw, at, seq, forCompactionSeq) {
     .filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
     .map((entry) => entry.trim())
     .slice(0, MAX_REPORT_UNKNOWNS)
+  const done = stringArray(raw.done, 20)
+  const failedAttempts = stringArray(raw.failedAttempts, 20)
+  const verified = Array.isArray(raw.verified)
+    ? raw.verified
+        .map((entry) =>
+          typeof entry === 'string'
+            ? { command: entry.trim(), result: '' }
+            : isObject(entry)
+              ? { command: stringOr(entry.command).trim(), result: stringOr(entry.result).trim() }
+              : null,
+        )
+        .filter((entry) => entry !== null && entry.command.length > 0)
+        .slice(0, 20)
+    : []
+  const decisions = Array.isArray(raw.decisions)
+    ? raw.decisions
+        .map((entry) =>
+          typeof entry === 'string'
+            ? { decision: entry.trim(), reason: '', rejected: false }
+            : isObject(entry)
+              ? {
+                  decision: stringOr(entry.decision).trim(),
+                  reason: stringOr(entry.reason).trim(),
+                  rejected: entry.rejected === true,
+                }
+              : null,
+        )
+        .filter((entry) => entry !== null && entry.decision.length > 0)
+        .slice(0, 20)
+    : []
   return {
     verdict,
     constraints,
@@ -659,6 +697,11 @@ function normalizeReport(raw, at, seq, forCompactionSeq) {
     nextStep: stringOr(raw.nextStep),
     verify,
     unknowns,
+    objective: stringOr(raw.objective).trim().slice(0, 500),
+    done,
+    verified,
+    decisions,
+    failedAttempts,
     spotCheckFile: stringOr(raw.spotCheckFile),
     notes: stringOr(raw.notes),
     at: numberOr(at, 0),
@@ -995,7 +1038,9 @@ B. 已改文件：逐条列出本会话中实际改过的文件路径，并写�
 C. 下一步：写出下一步动作和可直接执行的验证命令（完整命令），并说明现在能否执行。
 
 最后另起一行输出机器可读报告，必须是一个 JSON 对象：
-DSH_GUARD_JSON: {"verdict":"green|yellow|red","constraints":[{"text":"...","source":"...","certain":true}],"files":[{"path":"...","change":"...","reason":"...","certain":true}],"nextStep":"...","verify":["..."],"unknowns":["..."],"spotCheckFile":"..."}
+DSH_GUARD_JSON: {"verdict":"green|yellow|red","objective":"一句话：这次要完成什么（含验收标准）","constraints":[{"text":"...","source":"...","certain":true}],"files":[{"path":"...","change":"...","reason":"...","certain":true}],"done":["已完成并通过验证的事"],"verified":[{"command":"跑过的命令","result":"通过/失败/关键输出"}],"decisions":[{"decision":"做了什么选择","reason":"为什么","rejected":false}],"failedAttempts":["试过但失败的做法与原因"],"nextStep":"...","verify":["..."],"unknowns":["..."],"spotCheckFile":"..."}
+
+objective / done / verified / decisions / failedAttempts 是可选字段，但交接单会直接用到：能回忆多少写多少，记不清就写“无法确认”，不要编造。
 
 判定标准：
 - green：三项齐全，细节到文件/命令级。
@@ -1102,19 +1147,44 @@ function formatTime(ms) {
 }
 
 /**
- * Build the handoff brief. Pure; the host command writes it to disk.
+ * Build the handoff brief. Pure; the host command / tool writes it to disk.
+ *
+ * Seven sections the next agent actually needs: objective + acceptance,
+ * current state with verified evidence, decisions (including rejected ones),
+ * changed files with reasons, known traps and failed attempts, 3-5 concrete
+ * next steps, and the constraints that must not move. `extra` lets the model
+ * fill the parts only it remembers when it opts into a handoff.
+ *
  * @param {object} options
  * @param {object} options.state - guard projection state
  * @param {string} options.sessionId
  * @param {{totalTokens?: number, surfaceTokens?: number}|null} [options.measurement]
  * @param {object|null} [options.pressure]
  * @param {(abs: string) => boolean} [options.fileExists]
+ * @param {object|null} [options.extra] - model-supplied sections
  */
-export function buildHandoffMarkdown({ state, sessionId, measurement = null, pressure = null, fileExists = null }) {
+export function buildHandoffMarkdown({ state, sessionId, measurement = null, pressure = null, fileExists = null, extra = null }) {
   const effective = effectiveVerdict(state)
   const compaction = state.lastCompaction
+  const report = state.report
   const now = new Date().toLocaleString('zh-CN', { hour12: false })
   const lines = []
+  const fill = (value) => (typeof value === 'string' && value.trim().length > 0 ? value.trim() : null)
+  const pickList = (override, fallback) => {
+    const source = Array.isArray(override) && override.length > 0 ? override : fallback
+    return Array.isArray(source) ? source : []
+  }
+  const objective = fill(extra?.objective) ?? (report === null ? null : fill(report.objective))
+  const done = pickList(extra?.done, report === null ? [] : report.done).filter((item) => typeof item === 'string' && item.trim().length > 0)
+  const verified = pickList(extra?.verified, report === null ? [] : report.verified)
+  const decisions = pickList(extra?.decisions, report === null ? [] : report.decisions)
+  const failed = pickList(extra?.failedAttempts, report === null ? [] : report.failedAttempts).filter((item) => typeof item === 'string' && item.trim().length > 0)
+  const nextSteps = pickList(extra?.nextSteps, []).filter((item) => typeof item === 'string' && item.trim().length > 0)
+  const acceptance = pickList(extra?.acceptance, []).filter((item) => typeof item === 'string' && item.trim().length > 0)
+  const extraConstraints = pickList(extra?.constraints, []).filter((item) => typeof item === 'string' && item.trim().length > 0)
+  const reportConstraints = report === null ? [] : report.constraints
+  const nextStep = fill(report?.nextStep)
+
   lines.push('# 上下文交接单')
   lines.push('')
   lines.push(`- 会话：\`${sessionId}\``)
@@ -1127,122 +1197,178 @@ export function buildHandoffMarkdown({ state, sessionId, measurement = null, pre
     const tokens = typeof compaction.shadowedTokens === 'number' ? `，回收 ≈${compaction.shadowedTokens} tokens` : ''
     lines.push(`- 压缩次数：${state.compactions}；最近一次 ${formatTime(compaction.time)}${tokens}`)
   }
-  if (measurement !== null) {
-    const total = typeof measurement.totalTokens === 'number' ? measurement.totalTokens : undefined
-    const surface = typeof measurement.surfaceTokens === 'number' ? measurement.surfaceTokens : undefined
-    if (total !== undefined) lines.push(`- 当前计量：total≈${total} tokens${surface !== undefined ? ` / surface≈${surface}` : ''}`)
+  if (measurement !== null && typeof measurement.totalTokens === 'number') {
+    lines.push(`- 当前计量：total≈${measurement.totalTokens} tokens`)
   }
   if (pressure !== null && typeof pressure.projectedTokens === 'number') {
-    const window = typeof pressure.contextWindow === 'number' ? pressure.contextWindow : undefined
-    lines.push(`- 下一请求预估：${pressure.projectedTokens} tokens${window !== undefined ? ` / ${window}` : ''}`)
+    lines.push(`- 下一请求预估：${pressure.projectedTokens} tokens`)
   }
   lines.push(`- 判定：${effective === null ? '尚无行为测试结论' : `${effective.level.toUpperCase()}（来源：${effective.source}）`}`)
-  if (state.report !== null && state.report.assessment !== null && state.report.assessment.reasons.length > 0) {
+  if (report !== null && report.assessment !== null && report.assessment.reasons.length > 0) {
     lines.push('- 判定依据：')
-    for (const reason of state.report.assessment.reasons.slice(0, 6)) lines.push(`  - ${reason}`)
+    for (const reason of report.assessment.reasons.slice(0, 6)) lines.push(`  - ${reason}`)
   }
   if (state.userVerdict !== null && state.userVerdict.reason.length > 0) {
     lines.push(`- 人工备注：${state.userVerdict.reason}`)
   }
   lines.push('')
-  lines.push('## 1. 不可动约束（新对话必须继承）')
+
+  lines.push('## 1. 目标与完成标准（可验收）')
   lines.push('')
-  if (state.pins.length === 0 && (state.report === null || state.report.constraints.length === 0)) {
-    lines.push('- ⚠️ 没有固定约束，也没有自检报告。交接前请先运行 `/guard check` 或手工补充。')
+  lines.push(objective ?? '⚠️ 未提供。新对话必须先向用户确认目标，不要自行推断。')
+  if (acceptance.length > 0) {
+    lines.push('')
+    lines.push('验收标准：')
+    for (const item of acceptance) lines.push(`- ${item}`)
+  } else if (report !== null && report.verify.length > 0) {
+    lines.push('')
+    lines.push('验收标准（可执行）：')
+    lines.push('```sh')
+    for (const command of report.verify) lines.push(command)
+    lines.push('```')
   } else {
-    state.pins.forEach((pin, index) => lines.push(`${index + 1}. **[固定]** ${pin.text}`))
-    if (state.report !== null) {
-      state.report.constraints.forEach((constraint) => {
-        const source = constraint.source.length > 0 ? `（来源：${constraint.source}）` : ''
-        lines.push(`- ${constraint.text}${source}${constraint.certain === false ? ' ⚠️ 模型不确定' : ''}`)
-      })
+    lines.push('')
+    lines.push('⚠️ 未提供验收标准；补上可执行的验证命令后再交付。')
+  }
+  lines.push('')
+
+  lines.push('## 2. 当前状态')
+  lines.push('')
+  lines.push('### 已完成')
+  if (done.length === 0) lines.push('- （模型未提供；请对照文件清单与 git 状态补全）')
+  else for (const item of done) lines.push(`- ${item}`)
+  lines.push('')
+  lines.push('### 已验证')
+  if (verified.length === 0 && (report === null || report.verify.length === 0)) {
+    lines.push('- （没有记录验证结果；交接前至少跑一遍验证命令）')
+  } else if (verified.length === 0) {
+    lines.push('- 只有验证命令、没有结果记录：交接后必须先跑一遍再开始改动。')
+  } else {
+    for (const entry of verified) {
+      if (typeof entry === 'string') lines.push(`- ✅ ${entry}`)
+      else {
+        const command = typeof entry.command === 'string' ? entry.command : ''
+        const result = typeof entry.result === 'string' ? entry.result : ''
+        lines.push(`- \`${command}\`${result.length > 0 ? ` → ${result}` : ''}`)
+      }
+    }
+  }
+  if (report !== null && report.assessment !== null) {
+    const counts = report.assessment.counts
+    lines.push('')
+    lines.push(`### 证据摘要`)
+    lines.push(`- 原生写入记录 ${counts.actualFiles} 个文件；自检报告列出 ${counts.reportedFiles} 个；漏报 ${counts.missing} 个；未记录 ${counts.phantom} 个。`)
+  }
+  lines.push('')
+
+  lines.push('## 3. 关键决策与理由（含被否决方案）')
+  lines.push('')
+  if (decisions.length === 0) {
+    lines.push('- （模型未提供。新对话不要重新讨论已定方案；如需变更，先问用户。）')
+  } else {
+    for (const entry of decisions) {
+      if (typeof entry === 'string') lines.push(`- ${entry}`)
+      else {
+        const decision = typeof entry.decision === 'string' ? entry.decision : ''
+        const reason = typeof entry.reason === 'string' ? entry.reason : ''
+        const rejected = entry.rejected === true
+        lines.push(`- ${rejected ? '❌ 已否决：' : '✅ '}${decision}${reason.length > 0 ? ` —— 理由：${reason}` : ''}`)
+      }
     }
   }
   lines.push('')
-  lines.push('## 2. 文件改动')
+
+  lines.push('## 4. 涉及文件清单（路径 + 改了什么 + 为什么）')
   lines.push('')
-  lines.push('### 2a. 原生写入工具记录')
-  lines.push('')
-  if (state.files.length === 0) {
-    lines.push('- （无原生写入记录；如果改动用 shell 完成，需人工补充）')
+  if (report === null) {
+    lines.push('- （没有结构化自检报告；以下只有原生写入记录，改动原因需人工补全）')
+  } else if (report.files.length === 0) {
+    lines.push('- ⚠️ 自检报告没有列出任何文件，但本会话有原生写入记录（见下）。先运行 `/guard check` 重新核对。')
   } else {
-    lines.push('| 文件 | 写次数 | +行 | −行 | 最近写入 |')
-    lines.push('| --- | --- | --- | --- | --- |')
-    for (const file of state.files) {
-      lines.push(`| \`${displayPath(state.cwd, file.abs)}\` | ${file.writes} | ${file.added} | ${file.removed} | ${formatTime(file.lastAt)} |`)
-    }
-  }
-  lines.push('')
-  lines.push('### 2b. 模型自检报告')
-  lines.push('')
-  if (state.report === null) {
-    lines.push('- （无结构化报告）')
-  } else {
-    const stale = compaction !== null && state.report.forCompactionSeq !== compaction.seq
-    if (stale) lines.push('- ⚠️ 此报告生成于上一次压缩之后，可能已过期。')
-    for (const file of state.report.files) {
+    for (const file of report.files) {
       const abs = normalizePath(state.cwd, file.path)
       const exists = abs !== null && fileExists !== null ? fileExists(abs) : null
-      const existence = exists === true ? '存在' : exists === false ? '⚠️ 磁盘上不存在' : '未检查'
-      lines.push(`- \`${file.path}\` — ${file.change || '（未说明改动）'}；原因：${file.reason || '（未说明原因）'}；磁盘：${existence}`)
+      const existence = exists === true ? '' : exists === false ? '；⚠️ 磁盘上不存在' : ''
+      lines.push(`- \`${file.path}\` — ${file.change || '（未说明改动）'}；原因：${file.reason || '（未说明原因）'}${existence}`)
     }
-    if (state.report.files.length === 0) lines.push('- （报告没有列出文件）')
+  }
+  if (state.files.length > 0) {
+    lines.push('')
+    lines.push(`原生写入工具记录（${state.files.length} 个）：`)
+    lines.push('')
+    lines.push('| 文件 | 写次数 | +行 | −行 |')
+    lines.push('| --- | --- | --- | --- |')
+    for (const file of state.files.slice(0, 40)) {
+      lines.push(`| \`${displayPath(state.cwd, file.abs)}\` | ${file.writes} | ${file.added} | ${file.removed} |`)
+    }
+    if (state.files.length > 40) lines.push('')
+    if (state.files.length > 40) lines.push(`- （还有 ${state.files.length - 40} 个文件未列出）`)
   }
   lines.push('')
-  lines.push('## 3. 下一步')
+
+  lines.push('## 5. 已知坑与失败尝试')
   lines.push('')
-  lines.push(state.report?.nextStep?.trim() || '- （模型未给出；交接前必须补上）')
+  if (failed.length === 0) lines.push('- （模型未提供失败尝试；最容易被漏掉，新对话不要盲目重试旧方案。）')
+  else for (const item of failed) lines.push(`- ⚠️ ${item}`)
+  if (report !== null && report.unknowns.length > 0) {
+    lines.push('')
+    lines.push('不确定项：')
+    for (const unknown of report.unknowns) lines.push(`- ${unknown}`)
+  }
   lines.push('')
-  lines.push('## 4. 验证命令')
+
+  lines.push('## 6. 下一步（3–5 条具体动作）')
   lines.push('')
-  if (state.report === null || state.report.verify.length === 0) {
-    lines.push('- （没有可执行的验证命令；交接前必须补上）')
-  } else {
+  const steps = nextSteps.length > 0 ? nextSteps : nextStep !== null ? [nextStep] : []
+  if (steps.length === 0) lines.push('- ⚠️ 未提供。新对话必须先问用户下一步做什么。')
+  else steps.slice(0, 5).forEach((step, index) => lines.push(`${index + 1}. ${step}`))
+  lines.push('')
+  if (report !== null && report.verify.length > 0) {
+    lines.push('验证命令：')
     lines.push('```sh')
-    for (const command of state.report.verify) lines.push(command)
+    for (const command of report.verify) lines.push(command)
     lines.push('```')
+    lines.push('')
   }
+
+  lines.push('## 7. 约束（不能动的部分、风格、环境限制）')
   lines.push('')
-  lines.push('## 5. 不确定项')
-  lines.push('')
-  if (state.report === null || state.report.unknowns.length === 0) {
-    lines.push('- （无）')
+  if (state.pins.length === 0 && reportConstraints.length === 0 && extraConstraints.length === 0) {
+    lines.push('- ⚠️ 没有固定约束，也没有自检报告。交接前请用 `/guard pin <约束>` 补充。')
   } else {
-    for (const unknown of state.report.unknowns) lines.push(`- ${unknown}`)
+    state.pins.forEach((pin, index) => lines.push(`${index + 1}. **[固定]** ${pin.text}`))
+    for (const constraint of reportConstraints) {
+      const source = constraint.source.length > 0 ? `（来源：${constraint.source}）` : ''
+      lines.push(`- ${constraint.text}${source}${constraint.certain === false ? ' ⚠️ 模型不确定' : ''}`)
+    }
+    for (const constraint of extraConstraints) lines.push(`- ${constraint}`)
   }
   lines.push('')
-  lines.push('## 6. 新对话开场白')
+
+  lines.push('## 新对话开场白')
   lines.push('')
-  lines.push('把下面整段作为新对话的第一条消息：')
+  lines.push('把下面这段作为新对话的第一条消息（或直接让新对话读这份文件）：')
   lines.push('')
   lines.push('---')
-  lines.push('这是一次交接。上一个会话的上下文已压缩，行为自检结果如下。请先复述你理解的约束和下一步，再开始工作。')
+  lines.push('这是一次交接。请先读这份交接单，然后：')
+  lines.push('1. 复述你理解的目标、约束和下一步；')
+  lines.push('2. 对照文件清单确认当前状态（以磁盘和 git 为准，不要只信文档）；')
+  lines.push('3. 复述完再开始动手；发现冲突先问我。')
+  lines.push('')
+  lines.push(`目标：${objective ?? '（见交接单，待确认）'}`)
   lines.push('')
   lines.push('不可动约束：')
   if (state.pins.length > 0) state.pins.forEach((pin) => lines.push(`- ${pin.text}`))
-  if (state.report !== null) {
-    state.report.constraints.forEach((constraint) => lines.push(`- ${constraint.text}`))
-  }
-  if (state.pins.length === 0 && (state.report === null || state.report.constraints.length === 0)) lines.push('- （待补充）')
-  lines.push('')
-  lines.push('已改文件：')
-  if (state.files.length > 0) state.files.forEach((file) => lines.push(`- \`${displayPath(state.cwd, file.abs)}\`（写 ${file.writes} 次）`))
-  if (state.report !== null) {
-    for (const file of state.report.files) lines.push(`- \`${file.path}\`：${file.change || '改动'}；原因：${file.reason || '待补充'}`)
-  }
-  if (state.files.length === 0 && (state.report === null || state.report.files.length === 0)) lines.push('- （待补充）')
+  reportConstraints.forEach((constraint) => lines.push(`- ${constraint.text}`))
+  extraConstraints.forEach((constraint) => lines.push(`- ${constraint}`))
+  if (state.pins.length === 0 && reportConstraints.length === 0 && extraConstraints.length === 0) lines.push('- （待补充）')
   lines.push('')
   lines.push('下一步：')
-  lines.push(state.report?.nextStep?.trim() || '（待补充）')
-  lines.push('')
-  lines.push('验证命令：')
-  if (state.report !== null && state.report.verify.length > 0) {
-    for (const command of state.report.verify) lines.push(`- \`${command}\``)
-  } else {
-    lines.push('- （待补充）')
-  }
+  if (steps.length === 0) lines.push('- （待补充）')
+  else steps.slice(0, 5).forEach((step, index) => lines.push(`${index + 1}. ${step}`))
   lines.push('---')
   lines.push('')
+
   return lines.join('\n')
 }
 

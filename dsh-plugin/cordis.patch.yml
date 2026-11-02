@@ -20,6 +20,15 @@
         probeDelayMs: 1200
         # do not auto-probe again within 10 minutes
         cooldownMs: 600000
+        # structural triggers: when to test, never how to grade.
+        # fire a background check once the next request would use this much of
+        # the window (0.1-0.95); catches long sessions that never compact
+        pressureProbe: true
+        pressureThreshold: 0.6
+        # fire every N steps; 0 disables the step trigger
+        stepProbeInterval: 0
+        # when a check lands on red, ask the user whether to write a handoff
+        handoffOffer: true
         # only root conversations, not every subagent session
         rootsOnly: true
         # inject a short model-facing reminder after a manual /guard verdict

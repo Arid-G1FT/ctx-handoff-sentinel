@@ -110,10 +110,34 @@ dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin
     probeTimeoutMs: 120000 # 单次后台自检的硬超时
     probeDelayMs: 1200    # 压缩结束后稍等再排入，避免和压缩收尾抢同一时刻
     cooldownMs: 600000    # 10 分钟内不重复自动运行，避免自检自身再触发压缩时循环
+    pressureProbe: true   # 上下文占用超过阈值也自动测一次（不等压缩）
+    pressureThreshold: 0.6 # 下一请求预估占窗口 60% 即触发
+    stepProbeInterval: 0  # 每 N 步自动测一次；0 = 关闭
+    handoffOffer: true    # 判红时主动问用户要不要写交接单
     rootsOnly: true       # 只测主对话，不测每个子代理
     injectAdvice: true    # /guard green|yellow|red 后给模型注入一条简短行为约束
     handoffDir: '.dsh-handoff'  # 交接单写在会话 cwd 下
 ```
+
+### 什么时候测（三个结构触发）
+
+判定永远只看行为测试；**结构信号只决定「什么时候测」**：
+
+1. **压缩后**（`autoProbe`）：成功压缩会让模型的工作记忆被重写。
+2. **上下文压力**（`pressureProbe`）：`tokenMeter` 的下一请求预估占窗口比例 ≥ `pressureThreshold` 时触发。长会话可能一直不压缩（例如 1M 窗口跑到 60% 也没有一次压缩），这条触发让它在明显变慢之前就被测到。
+3. **步数间隔**（`stepProbeInterval`）：每 N 步测一次，默认关闭。
+
+三者共用 `cooldownMs`，且同一时刻不会重复排队。
+
+### 判红后主动询问交接（`handoffOffer`）
+
+判定为 🔴 时，插件会往对话里放一条**询问**（notice，不唤醒模型）：
+
+> 🔴 交接哨兵判定为红……要我写交接单吗？回复「写交接单」我就生成一份，包含：目标与完成标准 / 当前状态与已验证命令 / 关键决策与被否决方案 / 文件清单与原因 / 已知坑与失败尝试 / 下一步 3–5 条 / 不可动约束。
+
+- 用户回复「写交接单」后，模型按这套框架把交接单写到 `.dsh-handoff/`；新对话直接读它，不需要再重述项目背景。
+- 用户回复「不用」则继续当前工作；也可以随时手动 `/guard handoff`。
+- 交接单的 7 个章节由 `buildHandoffMarkdown` 生成，报告里的 `objective / done / verified / decisions / failedAttempts` 会直接填进去（这些是可选的机器字段，探针会让模型顺带回答）。
 
 ### 后台自检（`backgroundProbe`）
 
@@ -187,8 +211,8 @@ Host 侧的 projection 会以 `contextGuard` 键写入 `session_projcache`；可
 ## 测试
 
 ```sh
-node test/core.test.mjs      # 20 项：压缩触发、probe 识别、报告解析、证据核对、后台判定折叠、命令语法、交接单、dock epoch
-node test/host.test.mjs      # 6 项：host 接线、后台 fork 自检、check=status、inject 守卫回归
+node test/core.test.mjs      # 24 项：触发、报告解析、证据核对、后台判定折叠、交接单七段、dock epoch
+node test/host.test.mjs      # 9 项：host 接线、后台 fork 自检、check=status、压力/步数触发、判红询问交接、inject 守卫回归
 node test/client.test.mjs    # 1 项：client bundle 加载并注册输入框上方 Dock
 node test/scenario-report.mjs # 可读的效果回放
 ```

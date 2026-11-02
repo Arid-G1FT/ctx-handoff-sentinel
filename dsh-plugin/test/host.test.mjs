@@ -363,3 +363,90 @@ test('/guard check reviews in the background and returns the full status', async
   assert.ok(!harness.injections[0].content[0].text.includes('/guard status'))
   for (const cleanup of harness.cleanups) cleanup()
 })
+
+test('context pressure triggers a background check without any compaction', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-pressure-'))
+  const activations = []
+  const services = {
+    ...forkServices(activations),
+    tokenMeter: { measure: () => ({ totalTokens: 700, surfaceTokens: 400 }) },
+  }
+  const harness = createHarness(cwd, { services })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    pressureProbe: true,
+    pressureThreshold: 0.6,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  harness.feed({
+    type: 'request/context',
+    seq: 1,
+    time: 1000,
+    data: { provider: 'deepseek', model: 'deepseek-flash', contextWindow: 1000 },
+  })
+  harness.feed({ type: 'turn/end', seq: 2, time: 2000, data: { turn: 1 } })
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  assert.equal(activations.length, 1, 'pressure crossing 60% should run one self-check')
+  assert.equal(harness.injections.length, 1)
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
+test('red verdict asks the user whether to write a handoff', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-offer-'))
+  const activations = []
+  const harness = createHarness(cwd, { services: forkServices(activations, 'red') })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+    handoffOffer: true,
+  })
+
+  const result = await harness.commands.get('guard').handler({ agent: harness.agent, rawInput: 'check' })
+  assert.equal(result.kind, 'success')
+  assert.match(result.text, /判定：RED/)
+  // First injection is the verdict notice, second is the handoff question.
+  assert.equal(harness.injections.length, 2)
+  const offer = harness.injections[1].content[0].text
+  assert.match(offer, /要我写交接单吗/)
+  assert.match(offer, /目标与完成标准/)
+  assert.match(offer, /关键决策/)
+  assert.match(offer, /已知坑与失败尝试/)
+  assert.match(offer, /下一步/)
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
+test('step interval triggers periodic checks', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-steps-'))
+  const activations = []
+  const harness = createHarness(cwd, { services: forkServices(activations) })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    pressureProbe: false,
+    stepProbeInterval: 2,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  harness.feed({ type: 'step/end', seq: 1, time: 1000, data: { step: 1 } })
+  harness.feed({ type: 'step/end', seq: 2, time: 2000, data: { step: 2 } })
+  await new Promise((resolve) => setTimeout(resolve, 40))
+
+  assert.equal(activations.length, 1)
+  for (const cleanup of harness.cleanups) cleanup()
+})

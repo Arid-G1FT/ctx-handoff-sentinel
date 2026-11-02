@@ -56,6 +56,14 @@ Commands inside a conversation:
 | `/guard show` | Restore the dock after `×` hid it |
 | `/guard reset` | Clear the current check/verdict |
 
+Checks also fire automatically on **compaction**, when the next request would use
+more than 60% of the model window, or every N steps (`stepProbeInterval`). When a
+check lands on **red**, the plugin asks whether to write a handoff; answering
+"写交接单" produces a seven-section document (objective, current state with
+verified commands, decisions and rejected options, file list with reasons, known
+traps and failed attempts, 3–5 next steps, constraints) that the next session can
+read instead of re-explaining the project.
+
 ### Install the skill (for other people)
 
 Clone and run the installer — it copies `skill/` into the right home for Claude

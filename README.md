@@ -16,7 +16,7 @@ Two forms of the same check:
 
 | | |
 | --- | --- |
-| **DeepSeek Harness plugin** | 原生插件：哨兵条、`/guard check`、压缩后在 fork 子代理里后台自检，只把判定写回对话 |
+| **DeepSeek Harness plugin** | 原生插件：哨兵条、`/guard check`、fork 子代理后台自检（压缩 / 上下文压力 / 步数触发），判红时主动问是否写交接单 |
 | **Portable Agent Skill** | Claude Code / Codex 通用 `SKILL.md` + 两个零依赖 Python 脚本，用 git 工作区做证据核对 |
 
 Both ask the same three questions and grade the answer the same way:
