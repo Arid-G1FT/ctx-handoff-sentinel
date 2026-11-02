@@ -388,7 +388,7 @@ export function apply(ctx, config) {
   ctx.sessionProjections.register({
     key: 'contextGuard',
     stateSchema,
-    stateVersion: 4,
+    stateVersion: 5,
     init: (header) => initialGuardState(header),
     apply: applyGuardEvent,
     wire: {

@@ -122,7 +122,9 @@ block is printed.
 | Hard contradiction | Verdict |
 | --- | --- |
 | Report admits it cannot recall constraints/rules | 🔴 |
-| ≥3 files changed, report lists none | 🟡 |
+| ≥90% of changed files omitted (and ≥10 files) | 🔴 |
+| ≥10 files written but the report lists none | 🔴 |
+| ≥3 files changed, report lists none (fewer than 10) | 🟡 |
 | More than half of changed files omitted (and ≥2) | 🟡 |
 | ≥3 reported files absent from the baseline and dominant | 🟡 |
 | No next step, or no runnable verify command | 🟡 |

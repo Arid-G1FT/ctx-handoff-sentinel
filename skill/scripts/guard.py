@@ -35,6 +35,10 @@ ORDER_VERDICT = {value: key for key, value in VERDICT_ORDER.items()}
 # for omitting a handful of scratch files.
 MISSING_RATIO_YELLOW = 0.5
 MISSING_COUNT_YELLOW = 2
+# Losing almost all file memory is no longer a warning: at >=90% and >=10 files
+# the context cannot account for its own work, which is what red means.
+MISSING_RATIO_RED = 0.9
+MISSING_COUNT_RED = 10
 PHANTOM_RATIO_YELLOW = 0.5
 PHANTOM_COUNT_YELLOW = 3
 NO_FILES_REPORTED_MIN_ACTUAL = 3
@@ -188,13 +192,26 @@ def assess(root: str, report: dict, actual: list[str] | None, evidence_label: st
 
     if actual is not None:
         if len(actual) >= NO_FILES_REPORTED_MIN_ACTUAL and not reported:
-            level = bump(level, "yellow")
-            reasons.append(
-                f"the working tree changed {len(actual)} file(s) but the report lists none"
-            )
+            if len(actual) >= MISSING_COUNT_RED:
+                level = "red"
+                reasons.append(
+                    f"the working tree changed {len(actual)} file(s) but the report lists none: "
+                    "file memory is gone, hand off"
+                )
+            else:
+                level = bump(level, "yellow")
+                reasons.append(
+                    f"the working tree changed {len(actual)} file(s) but the report lists none"
+                )
         elif missing:
             ratio = len(missing) / max(len(actual), 1)
-            if len(missing) >= MISSING_COUNT_YELLOW and ratio > MISSING_RATIO_YELLOW:
+            if len(missing) >= MISSING_COUNT_RED and ratio > MISSING_RATIO_RED:
+                level = "red"
+                reasons.append(
+                    f"report omits {len(missing)}/{len(actual)} changed files ({round(ratio * 100)}%): "
+                    "file memory is effectively gone, hand off"
+                )
+            elif len(missing) >= MISSING_COUNT_YELLOW and ratio > MISSING_RATIO_YELLOW:
                 level = bump(level, "yellow")
                 reasons.append(
                     f"report omits {len(missing)}/{len(actual)} changed files (more than half): "
@@ -248,7 +265,9 @@ def assess(root: str, report: dict, actual: list[str] | None, evidence_label: st
         level = "red"
         reasons.append("the model self-reported red")
     elif verdict == "green" and level != "green":
-        reasons.append("the model self-reported green, but the evidence disagrees")
+        reasons.append(
+            f"the model self-reported green, but the evidence disagrees (evidence: {level.upper()})"
+        )
 
     return {
         "level": level,

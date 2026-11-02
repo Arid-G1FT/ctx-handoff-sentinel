@@ -11,6 +11,13 @@ until they diverge.
   `CODEX_HOME`, skip `__pycache__`, and refuse to overwrite without `--force`.
 - **Download docs** for people who do not clone: GitHub ZIP, manual copy, and
   the "no Node / no Python required" note.
+- **Critical file-memory tier (recalibration).** Omitting ≥90% of the written
+  files with at least 10 files now returns 🔴 instead of 🟡, and a report that
+  lists no files when ≥10 were written is also 🔴. Real case: a kimi session
+  wrote 64 files, the self-check listed 5 (92% omitted) and still self-reported
+  green; obvious degradation was passing as a yellow warning. Few small
+  omissions stay notes. Projection `STATE_VERSION` 4 → 5 so existing sessions
+  are re-assessed on load. The portable skill's `guard.py` mirrors the tier.
 
 ## 0.2.0 — 2026-11-02
 

@@ -252,7 +252,7 @@ test('view is stable for unchanged state', () => {
   const second = buildView(state)
   assert.notEqual(first, second) // buildView returns a fresh object; the plugin caches it by state
   assert.equal(first.headline, second.headline)
-  assert.equal(first.v, 4)
+  assert.equal(first.v, 5)
 })
 
 test('status text is readable', () => {
@@ -325,6 +325,64 @@ test('major omissions and evidence-free reports still demote', () => {
   })
   assert.equal(result.level, 'yellow')
   assert.match(result.reasons.join('\n'), /漏报/)
+})
+
+// The real-world case that motivated the critical tier: a long kimi session
+// wrote 64 files, the self-check listed 5 (92% omitted) and still called itself
+// green. The user saw obvious degradation while the sentinel said yellow.
+test('losing almost all file memory is red, not yellow', () => {
+  const state = compact(baseState())
+  state.files = Array.from({ length: 64 }, (_, i) => ({
+    path: `outputs/Kimi_DeepSeek_20261101/F${i}.md`,
+    abs: `C:\\work\\demo\\outputs\\Kimi_DeepSeek_20261101\\F${i}.md`,
+    writes: 1,
+    added: 1,
+    removed: 0,
+    lastAt: i,
+  }))
+  const result = assessReport(state, {
+    verdict: 'green',
+    constraints: [{ text: '不要改动 dsh-context 包', source: 'user', certain: true }],
+    files: [
+      { path: 'outputs/Kimi_DeepSeek_20261101/F0.md', change: '交付', reason: '交接文档', certain: true },
+      { path: 'outputs/Kimi_DeepSeek_20261101/F1.md', change: '交付', reason: '状态板', certain: true },
+      { path: 'outputs/Kimi_DeepSeek_20261101/F2.md', change: '交付', reason: '验收记录', certain: true },
+      { path: 'outputs/Kimi_DeepSeek_20261101/F3.md', change: '交付', reason: '验收记录', certain: true },
+      { path: 'outputs/Kimi_DeepSeek_20261101/F4.md', change: '交付', reason: '验收记录', certain: true },
+    ],
+    nextStep: '继续下一个任务',
+    verify: ['python -m unittest'],
+    unknowns: ['a', 'b', 'c', 'd', 'e'],
+    at: 10,
+  })
+  assert.equal(result.level, 'red')
+  assert.equal(result.checks.files, 'fail')
+  assert.equal(result.counts.missing, 59)
+  assert.match(result.reasons.join('\n'), /文件记忆/)
+  assert.match(result.reasons.join('\n'), /模型自评 green/)
+})
+
+test('a report that lists no files at all is red once >=10 files were written', () => {
+  const state = compact(baseState())
+  state.files = Array.from({ length: 12 }, (_, i) => ({
+    path: `src/f${i}.js`,
+    abs: `C:\\work\\demo\\src\\f${i}.js`,
+    writes: 1,
+    added: 1,
+    removed: 0,
+    lastAt: i,
+  }))
+  const result = assessReport(state, {
+    verdict: 'green',
+    constraints: [{ text: '不要改配置', source: 'user', certain: true }],
+    files: [],
+    nextStep: '继续',
+    verify: ['npm test'],
+    unknowns: [],
+    at: 10,
+  })
+  assert.equal(result.level, 'red')
+  assert.match(result.reasons.join('\n'), /文件记忆已失效/)
 })
 
 test('/guard show bumps the dock epoch so a hidden dock can return', () => {

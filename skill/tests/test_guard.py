@@ -65,6 +65,31 @@ class AssessTests(unittest.TestCase):
         result = assess(ROOT, report(nextStep=""), ["src/a.ts"], "git working tree")
         self.assertEqual(result["level"], "yellow")
 
+    def test_losing_almost_all_file_memory_is_red(self):
+        actual = [f"outputs/task/f{i}.md" for i in range(64)]
+        files = [
+            {"path": f"outputs/task/f{i}.md", "change": "deliverable", "reason": "handoff doc", "certain": True}
+            for i in range(5)
+        ]
+        result = assess(
+            ROOT,
+            report(files=files, unknowns=["a", "b", "c", "d", "e"]),
+            actual,
+            "session write log",
+        )
+        self.assertEqual(result["level"], "red")
+        self.assertEqual(result["counts"]["missing"], 59)
+        self.assertIn("file memory", " ".join(result["reasons"]))
+
+    def test_no_files_reported_is_red_past_ten(self):
+        result = assess(
+            ROOT,
+            report(files=[]),
+            [f"src/f{i}.ts" for i in range(12)],
+            "git working tree",
+        )
+        self.assertEqual(result["level"], "red")
+
     def test_no_constraints_is_only_a_note(self):
         result = assess(ROOT, report(constraints=[]), ["src/a.ts"], "git working tree")
         self.assertEqual(result["level"], "green")

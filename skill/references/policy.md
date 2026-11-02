@@ -20,10 +20,17 @@ hard contradiction:
 | Hard contradiction | Verdict | Why it matters |
 | --- | --- | --- |
 | `unknowns` admits it cannot recall constraints/rules | 🔴 | The context already lost the thing that must not be lost |
-| ≥3 changed files in the tree, none listed | 🟡 | The model has stopped tracking its own work |
+| ≥90% of changed files omitted (and ≥10 files) | 🔴 | File memory is effectively gone; only the last task survives |
+| Changed files exist but the report lists none (≥10 written) | 🔴 | Same failure at its extreme: no account of the session's work |
+| ≥3 changed files in the tree, none listed (fewer than 10) | 🟡 | The model has stopped tracking its own work |
 | More than half of changed files omitted (≥2) | 🟡 | The file memory is broadly wrong, not just noisy |
 | ≥3 reported files absent from the baseline and dominant | 🟡 | Possible fabrication; confirm with a spot check |
 | No next step, or no runnable verify command | 🟡 | The session cannot continue without re-deriving the plan |
+
+The second red row is what a real 1M-context kimi session looked like: 64 files
+written, 5 listed (92% omitted), the model still self-reported green. Capping
+that at yellow let obvious degradation through — the missing-file tier now has a
+red branch.
 
 ## What does **not** demote
 
@@ -49,5 +56,6 @@ breakage, not for nitpicking.
 ## Thresholds
 
 `MISSING_RATIO_YELLOW = 0.5`, `MISSING_COUNT_YELLOW = 2`,
+`MISSING_RATIO_RED = 0.9`, `MISSING_COUNT_RED = 10`,
 `PHANTOM_RATIO_YELLOW = 0.5`, `PHANTOM_COUNT_YELLOW = 3`,
 `NO_FILES_REPORTED_MIN_ACTUAL = 3` — all in `scripts/guard.py`, tunable per team.

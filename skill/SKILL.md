@@ -83,7 +83,9 @@ contradictions:
 | Hard contradiction | Verdict |
 | --- | --- |
 | The report admits it cannot recall the constraints/rules | 🔴 |
-| The working tree changed ≥3 files but the report lists none | 🟡 |
+| ≥90% of changed files omitted, with at least 10 files written | 🔴 |
+| ≥10 files written but the report lists none | 🔴 |
+| The working tree changed ≥3 files but the report lists none (fewer than 10) | 🟡 |
 | The report omits more than half of the changed files (and ≥2) | 🟡 |
 | ≥3 reported files are absent from the baseline and dominate the report | 🟡 |
 | No next step, or no runnable verification command | 🟡 |
@@ -93,7 +95,8 @@ shell-written paths outside git, honestly declared unknowns, short reasons,
 "no constraints" when nothing was pinned.
 
 Rationale: a healthy conversation must not be graded yellow for omitting scratch
-files. Full rules: `references/policy.md`.
+files — but losing almost all of them is not noise, it is the failure the red
+verdict exists for. Full rules: `references/policy.md`.
 
 ## Reporting format
 

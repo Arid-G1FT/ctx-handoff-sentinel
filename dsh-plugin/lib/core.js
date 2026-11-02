@@ -29,7 +29,7 @@ export const ADVICE_MARKER = '[[DSH-CONTEXT-GUARD:ADVICE]]'
  */
 export const REPORT_FIELD = 'guardReport'
 /** Wire/state semantic version. Bump when the fold semantics change. */
-export const STATE_VERSION = 4
+export const STATE_VERSION = 5
 
 const MAX_FILES = 200
 const MAX_PINS = 20
@@ -43,6 +43,19 @@ const MAX_ANSWER_TEXT = 12000
 
 const VERDICTS = new Set(['green', 'yellow', 'red'])
 const LEVEL_ORDER = { green: 0, yellow: 1, red: 2 }
+
+/**
+ * File-memory severity.
+ *
+ * Omitting a few scratch files is noise. Omitting more than half of the written
+ * files is a yellow contradiction. Omitting almost all of them — >=90% and at
+ * least 10 files — means the context can no longer account for its own work,
+ * which is exactly what red exists for: hand off instead of continuing.
+ */
+const MISSING_RATIO_YELLOW = 0.5
+const MISSING_COUNT_YELLOW = 2
+const MISSING_RATIO_RED = 0.9
+const MISSING_COUNT_RED = 10
 
 function isObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -700,6 +713,10 @@ function bump(level, next) {
  * the native write tools never saw, honestly declared unknowns — is reported as
  * context but never demotes the verdict. The old policy graded every blemish as
  * a demotion, which turned a healthy 29%-context conversation yellow.
+ *
+ * A second calibration fixed the opposite failure: 59 of 64 written files
+ * omitted (92%) still capped at yellow while the model claimed green. File
+ * memory at that level is gone, so the critical tier now returns red.
  */
 export function assessReport(state, report) {
   const reasons = []
@@ -739,12 +756,23 @@ export function assessReport(state, report) {
   }
 
   if (actualPaths.length >= 3 && reportPaths.length === 0) {
-    level = bump(level, 'yellow')
-    checks.files = 'warn'
-    reasons.push(`本会话实际写入 ${actualPaths.length} 个文件，报告一个都没有列出`)
+    const fatal = actualPaths.length >= MISSING_COUNT_RED
+    level = fatal ? 'red' : bump(level, 'yellow')
+    checks.files = fatal ? 'fail' : 'warn'
+    reasons.push(
+      fatal
+        ? `本会话实际写入 ${actualPaths.length} 个文件，报告一个都没有列出：文件记忆已失效，按交接处理`
+        : `本会话实际写入 ${actualPaths.length} 个文件，报告一个都没有列出`,
+    )
   } else if (missing.length > 0) {
     const missingRatio = missing.length / actualPaths.length
-    if (missing.length >= 2 && missingRatio > 0.5) {
+    if (missing.length >= MISSING_COUNT_RED && missingRatio > MISSING_RATIO_RED) {
+      level = 'red'
+      checks.files = 'fail'
+      reasons.push(
+        `漏报 ${missing.length}/${actualPaths.length} 个已写文件（${Math.round(missingRatio * 100)}%）：文件记忆基本失效，按交接处理`,
+      )
+    } else if (missing.length >= MISSING_COUNT_YELLOW && missingRatio > MISSING_RATIO_YELLOW) {
       level = bump(level, 'yellow')
       checks.files = 'warn'
       reasons.push(`漏报 ${missing.length}/${actualPaths.length} 个已写文件（超过一半）：${missing.slice(0, 3).map((path) => displayPath(state.cwd, path)).join('、')}`)
@@ -808,7 +836,7 @@ export function assessReport(state, report) {
     level = 'red'
     reasons.push('模型自评 red')
   } else if (report.verdict === 'green' && level !== 'green') {
-    reasons.push('模型自评 green，但证据不支持')
+    reasons.push(`模型自评 green，但证据不支持（证据评估 ${level.toUpperCase()}）`)
   }
 
   return {
