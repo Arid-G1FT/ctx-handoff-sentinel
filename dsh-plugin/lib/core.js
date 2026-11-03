@@ -1147,6 +1147,74 @@ function formatTime(ms) {
 }
 
 /**
+ * The prompt that makes the model write the handoff itself.
+ *
+ * A plugin can only see deterministic state (files, report, pins). The parts
+ * that make a handoff useful — why a plan was rejected, what was tried and
+ * failed, how "done" was verified — exist only in the model's context. So the
+ * plugin asks the model to write the document, with the framework and the
+ * deterministic data as supporting material, instead of writing a sparse file.
+ */
+export function buildHandoffInstruction(state, { draftPath = '' } = {}) {
+  const effective = effectiveVerdict(state)
+  const report = state.report
+  const lines = []
+  lines.push('[[DSH-CONTEXT-GUARD:HANDOFF]]')
+  lines.push('')
+  lines.push('用户已确认要写交接单。请**基于你当前上下文**（不要读取/搜索历史会话日志来补内容，凭回忆写；记不清就写“无法确认”）写一份完整的交接文档。')
+  lines.push('')
+  lines.push('先在心里逐项回忆本会话，再一次性写成 Markdown 文件。文档开头先写一段「用途：新对话冷启动」和「当前最重要的事实」，然后是下面全部章节，不允许用“未提供/待补充”占位：')
+  lines.push('')
+  lines.push('1. **任务来源与授权边界**：用户的大目标；明确授权过哪些操作；明确未授权/禁止的事项（尤其是外部操作、发布、改配置）。')
+  lines.push('2. **目标与完成标准（可验收）**：这次任务要交付什么，怎样算完成（写可执行的验收条件，不写“继续优化”）。')
+  lines.push('3. **进度盘点**：用表格「大项 | 当前状态 | 可核验依据」逐项列出，状态必须对应真实文件/命令输出；已完成的写依据，没完成的写卡点。')
+  lines.push('4. **关键决策与理由**：做过哪些选择、为什么；尤其**被否决的方案**和否决原因，防止新对话重踩。')
+  lines.push('5. **涉及文件清单**：每个改动文件的路径 + 改了什么 + 为什么改；按源码/文档/脚本/产出物分组。')
+  lines.push('6. **已知坑与失败尝试**：试过但失败的做法、踩过的坑、环境陷阱。')
+  lines.push('7. **当前卡点与未完成项**：现在卡在哪、缺什么、哪些是用户尚未授权的。')
+  lines.push('8. **下一步**：3–5 条具体动作，按优先级排序。')
+  lines.push('9. **约束**：不能动的部分、代码风格、环境限制、用户明确要求。')
+  lines.push('10. **复跑命令与结果**：交接前复跑过的命令和输出（通过/失败数），以及新对话第一步应该跑什么。')
+  lines.push('')
+  lines.push('写作要求：')
+  lines.push('- 具体到路径、命令、行号级细节；不要写泛泛而谈的总结。')
+  lines.push('- 只写你确实记得的；记不清的明确标注“无法确认”，禁止编造。')
+  lines.push('- 结论必须能被文件或命令复核；不能复核的写成“口头/未验证”。')
+  lines.push('- 用中文写；代码/命令保持原样。')
+  lines.push('')
+  if (state.pins.length > 0) {
+    lines.push('用户固定的不可动约束（必须原样继承）：')
+    for (const pin of state.pins) lines.push(`- ${pin.text}`)
+    lines.push('')
+  }
+  if (report !== null && report.constraints.length > 0) {
+    lines.push('自检报告里的约束（可核对）：')
+    for (const constraint of report.constraints) {
+      lines.push(`- ${constraint.text}${constraint.source.length > 0 ? `（来源：${constraint.source}）` : ''}`)
+    }
+    lines.push('')
+  }
+  if (state.files.length > 0) {
+    lines.push(`原生写入工具记录（共 ${state.files.length} 个文件，供你核对清单）：`)
+    for (const file of state.files.slice(0, 80)) lines.push(`- \`${displayPath(state.cwd, file.abs)}\`（写 ${file.writes} 次）`)
+    if (state.files.length > 80) lines.push(`- …另有 ${state.files.length - 80} 个`)
+    lines.push('')
+  }
+  if (report !== null && report.verify.length > 0) {
+    lines.push('本会话用过的验证命令：')
+    for (const command of report.verify) lines.push(`- \`${command}\``)
+    lines.push('')
+  }
+  lines.push(`把文件写到工作目录的 \`${draftPath || '.dsh-handoff/HANDOFF-<日期>.md'}\`（用 write 工具，目录不存在就创建）。`)
+  lines.push('写完后只回复：文件路径 + 三句话以内的摘要。不要把整篇文档粘贴回对话。')
+  if (effective !== null) {
+    lines.push('')
+    lines.push(`（哨兵判定：${effective.level.toUpperCase()}；本次为人工确认后的交接。）`)
+  }
+  return lines.join('\n')
+}
+
+/**
  * Build the handoff brief. Pure; the host command / tool writes it to disk.
  *
  * Seven sections the next agent actually needs: objective + acceptance,

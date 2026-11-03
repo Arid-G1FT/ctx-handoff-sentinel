@@ -6,6 +6,7 @@ import {
   REPORT_FIELD,
   applyGuardEvent,
   assessReport,
+  buildHandoffInstruction,
   buildHandoffMarkdown,
   buildProbePrompt,
   buildStatusText,
@@ -418,6 +419,31 @@ test('report carries the optional handoff fields', () => {
   assert.equal(report.verified[0].result, '12 passed')
   assert.equal(report.decisions[0].decision, 'use a queue')
   assert.equal(report.failedAttempts[0], 'polling hit 429')
+})
+
+test('handoff instruction demands the full session content', () => {
+  const state = compact(baseState())
+  state.pins.push({ text: 'do not touch the public API', at: 1, seq: 1 })
+  const prompt = buildHandoffInstruction(state, { draftPath: '.dsh-handoff/HANDOFF-x.md' })
+  for (const section of [
+    '任务来源与授权边界',
+    '目标与完成标准',
+    '进度盘点',
+    '关键决策与理由',
+    '涉及文件清单',
+    '已知坑与失败尝试',
+    '当前卡点与未完成项',
+    '下一步',
+    '约束',
+    '复跑命令与结果',
+  ]) {
+    assert.ok(prompt.includes(section), `missing ${section}`)
+  }
+  assert.match(prompt, /凭回忆写/)
+  assert.match(prompt, /不允许用“未提供\/待补充”占位/)
+  assert.match(prompt, /do not touch the public API/)
+  assert.match(prompt, /\.dsh-handoff\/HANDOFF-x\.md/)
+  assert.ok(!prompt.includes('要我写交接单'), 'the popup asks; the instruction does not')
 })
 
 test('handoff markdown uses the seven-section framework', () => {

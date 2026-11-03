@@ -9,16 +9,26 @@ until they diverge.
   fires when the next request would use `pressureThreshold` (default 60%) of the
   model window, or every `stepProbeInterval` steps. Long sessions that never
   compact are no longer untested; the trigger still never grades the result.
-- **Red asks for a handoff.** On 🔴 the plugin injects a notice asking whether to
-  write a handoff document, listing the seven sections it will contain. The
-  user's "写交接单" authorises the model to write it; the next session reads the
-  file instead of re-hearing the project background.
-- **Seven-section handoff framework.** `buildHandoffMarkdown` now emits
+- **Red shows a yes/no handoff popup.** On 🔴 a small dialog appears above the
+  composer ("写交接单" / "稍后"). Confirming calls the plugin's
+  `POST /api/dsh-context-guard/handoff` endpoint, so the user types no command;
+  the host wakes the model with a framework prompt and the model writes the
+  document itself. `/guard handoff` does the same, and `/guard handoff draft`
+  keeps the deterministic fallback.
+- **Model-authored handoff.** The old flow wrote a sparse file from projection
+  state, so the sections came out as "未提供". The instruction now demands the
+  full session content (objective/acceptance, state with verified commands and
+  results, decisions incl. rejected options, files with reasons, traps and failed
+  attempts, 3–5 next steps, constraints), forbids "未提供/待补充" placeholders,
+  and supplies the deterministic data (write log, pins, verify commands) as a
+  cross-check. A 66-file session that produced an empty handoff now gets one with
+  real content.
+- **Seven-section handoff framework (fallback).** `buildHandoffMarkdown` emits
   objective/acceptance, current state with verified commands and results,
   decisions (including rejected options), files with reasons, known traps and
   failed attempts, 3–5 next steps, and constraints. The probe's optional machine
-  fields (`objective`, `done`, `verified`, `decisions`, `failedAttempts`) feed it
-  directly; the skill's `handoff.py` mirrors the same sections.
+  fields (`objective`, `done`, `verified`, `decisions`, `failedAttempts`) feed it;
+  the skill's `handoff.py` mirrors the same sections.
 - Projection `STATE_VERSION` 5 → 6 so existing sessions re-fold with the richer
   report fields.
 - **One-command installers.** `install.sh` (macOS/Linux) and `install.cmd` /

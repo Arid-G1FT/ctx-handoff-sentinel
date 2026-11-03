@@ -175,7 +175,7 @@ test('host wires the projection, command, and legacy in-conversation probe', asy
   assert.equal(harness.injections.length, 1)
   assert.ok(harness.injections[0].content[0].text.includes('上下文交接哨兵'))
 
-  const handoff = await harness.commands.get('guard').handler({ agent: harness.agent, rawInput: 'handoff' })
+  const handoff = await harness.commands.get('guard').handler({ agent: harness.agent, rawInput: 'handoff draft' })
   assert.equal(handoff.kind, 'success')
   assert.match(handoff.text, /上下文交接单/)
   const fileMatch = /交接单已写入：\n(.+\.md)/.exec(handoff.text)
@@ -398,7 +398,7 @@ test('context pressure triggers a background check without any compaction', asyn
   for (const cleanup of harness.cleanups) cleanup()
 })
 
-test('red verdict asks the user whether to write a handoff', async () => {
+test('red verdict no longer injects a handoff question (the dock asks instead)', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'guard-offer-'))
   const activations = []
   const harness = createHarness(cwd, { services: forkServices(activations, 'red') })
@@ -410,20 +410,86 @@ test('red verdict asks the user whether to write a handoff', async () => {
     rootsOnly: true,
     injectAdvice: true,
     handoffDir: '.dsh-handoff',
-    handoffOffer: true,
   })
 
   const result = await harness.commands.get('guard').handler({ agent: harness.agent, rawInput: 'check' })
   assert.equal(result.kind, 'success')
   assert.match(result.text, /判定：RED/)
-  // First injection is the verdict notice, second is the handoff question.
-  assert.equal(harness.injections.length, 2)
-  const offer = harness.injections[1].content[0].text
-  assert.match(offer, /要我写交接单吗/)
-  assert.match(offer, /目标与完成标准/)
-  assert.match(offer, /关键决策/)
-  assert.match(offer, /已知坑与失败尝试/)
-  assert.match(offer, /下一步/)
+  // Only the verdict notice: the yes/no question lives in the composer popup,
+  // driven by the projection, not in an injected chat message.
+  assert.equal(harness.injections.length, 1)
+  assert.ok(!harness.injections[0].content[0].text.includes('要我写交接单'))
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
+test('/guard handoff asks the model to write the document itself', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-handoff-ask-'))
+  const harness = createHarness(cwd, { services: forkServices([]) })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  const result = await harness.commands.get('guard').handler({ agent: harness.agent, rawInput: 'handoff' })
+  assert.equal(result.kind, 'success')
+  assert.match(result.text, /已把写交接单的请求交给模型/)
+  assert.equal(harness.followups.length, 1)
+  const prompt = harness.followups[0].content[0].text
+  assert.match(prompt, /DSH-CONTEXT-GUARD:HANDOFF/)
+  assert.match(prompt, /目标与完成标准/)
+  assert.match(prompt, /关键决策与理由/)
+  assert.match(prompt, /已知坑与失败尝试/)
+  assert.match(prompt, /下一步/)
+  assert.match(prompt, /约束/)
+  assert.match(prompt, /不允许用“未提供\/待补充”占位/)
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
+test('the handoff decision endpoint accepts yes and wakes the model', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-route-'))
+  const routes = []
+  const services = {
+    ...forkServices([]),
+    webServer: { register: (definition) => { routes.push(definition); return () => {} } },
+  }
+  const harness = createHarness(cwd, { services })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].path, '/api/dsh-context-guard/handoff')
+
+  const response = { code: 0, body: '' }
+  const res = {
+    writeHead(code) { response.code = code },
+    end(body) { response.body = String(body) },
+  }
+  const req = {
+    method: 'POST',
+    headers: { host: '127.0.0.1:5000', origin: 'http://127.0.0.1:5000' },
+    on(event, handler) {
+      if (event === 'data') handler(Buffer.from(JSON.stringify({ sessionId: harness.session.id, decision: 'yes' })))
+      if (event === 'end') handler()
+      return this
+    },
+  }
+  await routes[0].handler(req, res)
+  assert.equal(response.code, 200)
+  assert.match(response.body, /"ok":true/)
+  assert.equal(harness.followups.length, 1)
+  assert.match(harness.followups[0].content[0].text, /DSH-CONTEXT-GUARD:HANDOFF/)
   for (const cleanup of harness.cleanups) cleanup()
 })
 

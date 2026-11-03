@@ -39,6 +39,11 @@ window.__ModuleLoader__.load({
 .dcg_pre{font-family:var(--dsw-font-mono,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:11px;white-space:pre-wrap;word-break:break-word;background:rgba(110,118,129,.10);border-radius:6px;padding:6px 8px;margin:2px 0 0 0;max-height:130px;overflow:auto}
 .dcg_close{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary,#8b949e);font-size:14px;line-height:1;cursor:pointer;font-family:inherit}
 .dcg_close:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(255,255,255,.08));color:var(--dsw-alias-label-primary,#e6edf3)}
+.dcg_offer{box-sizing:border-box;width:calc(100% - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-side-clearance,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px) - var(--dsh-composer-dock-inset,0px));max-width:calc(var(--dsh-composer-card-max-width,760px) - 4 * var(--dsh-composer-dock-inset,0px));margin:0 auto 6px auto;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:var(--dsw-radius-md,10px);border:1px solid rgba(248,81,73,.45);background:var(--dsw-specific-menu,#161b22);box-shadow:var(--dsw-elevation-panel,0 6px 20px rgba(0,0,0,.22))}
+.dcg_offer_text{flex:1;min-width:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-primary,#e6edf3)}
+.dcg_offer_meta{display:block;margin-top:2px;color:var(--dsw-alias-label-tertiary,#8b949e);font-size:11px}
+.dcg_offer_actions{flex:none;display:flex;align-items:center;gap:8px}
+.dcg_offer_done{box-sizing:border-box;width:100%;max-width:calc(var(--dsh-composer-card-max-width,760px) - 4 * var(--dsh-composer-dock-inset,0px));margin:0 auto 6px auto;padding:6px 10px;border-radius:8px;color:var(--dsw-alias-label-secondary,#b7c3d0);font-size:12px;background:rgba(110,118,129,.12)}
 `
 
     const TAG_ID = '@local/dsh-context-guard/dock.css'
@@ -82,6 +87,52 @@ window.__ModuleLoader__.load({
       } catch (e) {
         // storage may be unavailable in a sandboxed frame; hiding still applies for this render tree
       }
+    }
+
+    /** Host endpoint the red-verdict popup calls (registered by the host half). */
+    const HANDOFF_ROUTE = '/api/dsh-context-guard/handoff'
+    /** Per-report dismissal: ask once per red verdict, not once per render. */
+    const OFFER_DISMISS_PREFIX = 'dsh-context-guard.handoffOffer.'
+
+    function offerKey(sessionId, reportAt) {
+      return OFFER_DISMISS_PREFIX + String(sessionId) + '.' + String(reportAt)
+    }
+
+    function readDismissed(key) {
+      if (!key) return false
+      try {
+        return window.localStorage.getItem(key) === '1'
+      } catch (e) {
+        return false
+      }
+    }
+
+    function writeDismissed(key) {
+      if (!key) return
+      try {
+        window.localStorage.setItem(key, '1')
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    async function decideHandoff(sessionId, decision) {
+      const response = await fetch(HANDOFF_ROUTE, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId, decision }),
+      })
+      if (!response.ok) {
+        let detail = 'HTTP ' + response.status
+        try {
+          const body = await response.json()
+          if (body && typeof body.error === 'string') detail = body.error
+        } catch (e) {
+          // keep the status
+        }
+        throw new Error(detail)
+      }
+      return response.json().catch(() => ({}))
     }
 
     function toneOf(view) {
@@ -235,6 +286,8 @@ window.__ModuleLoader__.load({
       const view = props.useProjection('contextGuard')
       const [open, setOpen] = useState(false)
       const [hiddenEpoch, setHiddenEpoch] = useState(readHiddenEpoch)
+      const [offerState, setOfferState] = useState('idle')
+      const [offerError, setOfferError] = useState('')
       if (view === undefined || view === null) return null
       // Closed means gone: no pill, no placeholder. `/guard show` bumps
       // `dockEpoch`, which no longer matches the stored value and brings it back.
@@ -250,7 +303,57 @@ window.__ModuleLoader__.load({
       const tone = toneOf(view)
       const showCheck = view.probe.status === 'due' || view.probe.status === 'skipped' || (view.probe.status === 'answered' && view.effective === null)
       const showHandoff = view.effective !== null && view.effective.level !== 'green'
+      const sessionId = typeof props.sessionId === 'string' ? props.sessionId : ''
+      const reportAt = view.report !== null && view.report !== undefined && typeof view.report.at === 'number' ? view.report.at : 0
+      const dismissedKey = sessionId ? offerKey(sessionId, reportAt) : ''
+      const red =
+        view.effective !== null &&
+        view.effective !== undefined &&
+        view.effective.level === 'red'
+      const offerVisible = red && offerState !== 'done' && offerState !== 'dismissed' && !readDismissed(dismissedKey)
+
+      const decide = async (decision) => {
+        setOfferError('')
+        setOfferState('sending')
+        try {
+          await decideHandoff(sessionId, decision)
+          writeDismissed(dismissedKey)
+          setOfferState(decision === 'yes' ? 'done' : 'dismissed')
+        } catch (error) {
+          setOfferError(String(error && error.message ? error.message : error))
+          setOfferState('idle')
+        }
+      }
+
       return h('div', { className: 'dcg_dock', 'data-context-guard': true },
+        offerVisible
+          ? h('div', { className: 'dcg_offer', role: 'dialog', 'aria-label': '是否现在写交接单' },
+              h('div', { className: 'dcg_offer_text' },
+                '🔴 上下文已经明显不可靠，建议现在交接。',
+                h('span', { className: 'dcg_offer_meta' },
+                  offerError.length > 0
+                    ? '发送失败：' + offerError
+                    : '生成一份完整交接单后，新对话读它即可继续，不用重述项目背景。'),
+              ),
+              h('div', { className: 'dcg_offer_actions' },
+                h('button', {
+                  type: 'button',
+                  className: 'dcg_btn dcg_btn_primary',
+                  disabled: offerState === 'sending',
+                  onClick: () => decide('yes'),
+                }, offerState === 'sending' ? '请求中…' : '写交接单'),
+                h('button', {
+                  type: 'button',
+                  className: 'dcg_btn',
+                  disabled: offerState === 'sending',
+                  onClick: () => decide('no'),
+                }, '稍后'),
+              ),
+            )
+          : null,
+        offerState === 'done'
+          ? h('div', { className: 'dcg_offer_done' }, '已把写交接单的请求交给模型，完成后会把路径发到对话里。')
+          : null,
         h('div', { className: 'dcg_bar', title: view.advice },
           h(VerdictDot, { tone }),
           h('span', { className: 'dcg_title' }, '交接哨兵'),
@@ -290,6 +393,8 @@ window.__ModuleLoader__.load({
           name: 'conversation.input.dock',
           id: 'context-guard',
           order: 20,
+          // The red popup needs the session id to call the host endpoint.
+          inject: (sessionId) => ({ sessionId }),
         }, ContextGuardDock),
       )
     }

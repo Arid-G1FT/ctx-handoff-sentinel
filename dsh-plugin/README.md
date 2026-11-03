@@ -113,7 +113,6 @@ dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin
     pressureProbe: true   # 上下文占用超过阈值也自动测一次（不等压缩）
     pressureThreshold: 0.6 # 下一请求预估占窗口 60% 即触发
     stepProbeInterval: 0  # 每 N 步自动测一次；0 = 关闭
-    handoffOffer: true    # 判红时主动问用户要不要写交接单
     rootsOnly: true       # 只测主对话，不测每个子代理
     injectAdvice: true    # /guard green|yellow|red 后给模型注入一条简短行为约束
     handoffDir: '.dsh-handoff'  # 交接单写在会话 cwd 下
@@ -129,15 +128,20 @@ dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin
 
 三者共用 `cooldownMs`，且同一时刻不会重复排队。
 
-### 判红后主动询问交接（`handoffOffer`）
+### 判红后弹出交接确认（输入框上方）
 
-判定为 🔴 时，插件会往对话里放一条**询问**（notice，不唤醒模型）：
+判定为 🔴 时，**输入框上方会弹出一个小窗口**：
 
-> 🔴 交接哨兵判定为红……要我写交接单吗？回复「写交接单」我就生成一份，包含：目标与完成标准 / 当前状态与已验证命令 / 关键决策与被否决方案 / 文件清单与原因 / 已知坑与失败尝试 / 下一步 3–5 条 / 不可动约束。
+> 🔴 上下文已经明显不可靠，建议现在交接。
+> 生成一份完整交接单后，新对话读它即可继续，不用重述项目背景。
+> **[写交接单] [稍后]**
 
-- 用户回复「写交接单」后，模型按这套框架把交接单写到 `.dsh-handoff/`；新对话直接读它，不需要再重述项目背景。
-- 用户回复「不用」则继续当前工作；也可以随时手动 `/guard handoff`。
-- 交接单的 7 个章节由 `buildHandoffMarkdown` 生成，报告里的 `objective / done / verified / decisions / failedAttempts` 会直接填进去（这些是可选的机器字段，探针会让模型顺带回答）。
+- 点「写交接单」→ 客户端调用插件注册的 `POST /api/dsh-context-guard/handoff`，宿主给模型发一条**框架提示**，由模型用 write 工具写完整文档；**用户不需要执行任何命令**。
+- 点「稍后」→ 记下这次判定（localStorage，按报告时间），同一份红判定不再弹；新判定会重新询问。
+- 交接单由**模型写**，因为只有模型知道：哪些方案被否决、为什么、哪些做法试过失败、验证到了什么程度。插件只提供确定性素材（文件写入记录、约束、验证命令）和十段框架（授权边界 / 目标与验收 / 进度盘点 / 决策与被否决 / 文件清单 / 坑与失败 / 卡点 / 下一步 / 约束 / 复跑命令），不替模型编内容。
+- `/guard handoff` 等价于点「写交接单」；`/guard handoff draft` 才会写插件生成的确定性草稿（无模型参与，适合脚本/无客户端场景）。
+
+所以交接文档不会再出现「未提供/待补充」的空壳：提示里明确要求 **不允许用占位符**，记不清的必须写「无法确认」。
 
 ### 后台自检（`backgroundProbe`）
 
@@ -211,7 +215,7 @@ Host 侧的 projection 会以 `contextGuard` 键写入 `session_projcache`；可
 ## 测试
 
 ```sh
-node test/core.test.mjs      # 24 项：触发、报告解析、证据核对、后台判定折叠、交接单七段、dock epoch
+node test/core.test.mjs      # 25 项：触发、报告解析、证据核对、后台判定折叠、交接提示词、dock epoch
 node test/host.test.mjs      # 9 项：host 接线、后台 fork 自检、check=status、压力/步数触发、判红询问交接、inject 守卫回归
 node test/client.test.mjs    # 1 项：client bundle 加载并注册输入框上方 Dock
 node test/scenario-report.mjs # 可读的效果回放

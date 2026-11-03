@@ -47,7 +47,7 @@ dsh plugin --profile desktop add link:"$PWD/dsh-plugin"
 | `/guard show` | 恢复被 `×` 隐藏的哨兵条 |
 | `/guard reset` | 清空当前自检/判定 |
 
-自检也会自动触发：**压缩后**、**下一请求预估超过窗口 60%**、或每 N 步（`stepProbeInterval`）。判定为 **🔴** 时，插件会主动问要不要写交接单；回复「写交接单」就会生成一份七段式文档（目标与完成标准、当前状态与已验证命令、关键决策与被否决方案、文件清单与原因、已知坑与失败尝试、下一步 3–5 条、不可动约束），新对话直接读它，不用再重述项目背景。
+自检也会自动触发：**压缩后**、**下一请求预估超过窗口 60%**、或每 N 步（`stepProbeInterval`）。判定为 **🔴** 时，输入框上方会弹出小窗口问是否现在写交接单（是/否按钮，不用敲命令）；选「写」会唤醒模型，由模型写完整文档——因为只有它知道哪些方案被否决、哪些做法失败过。文档按七段框架生成（目标与完成标准、当前状态与已验证命令、关键决策与被否决方案、文件清单与原因、已知坑与失败尝试、下一步 3–5 条、约束），新对话直接读它，不用再重述项目背景。
 
 ### 别人怎么装（Claude Code / Codex / 任意宿主）
 
@@ -120,7 +120,7 @@ dsh-plugin/          DeepSeek Harness 插件（宿主 + 客户端 + 测试）
 skill/               通用 Agent Skill
   SKILL.md           触发条件、协议、输出契约
   scripts/guard.py   确定性证据核对
-  scripts/handoff.py 七段式交接单
+  scripts/handoff.py 十段式交接单
   references/        判定规则
   tests/             Python 单元测试
 docs/upgrading-dsh.md  DSH 升级维护清单

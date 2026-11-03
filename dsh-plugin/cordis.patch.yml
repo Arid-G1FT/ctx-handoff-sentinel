@@ -27,8 +27,8 @@
         pressureThreshold: 0.6
         # fire every N steps; 0 disables the step trigger
         stepProbeInterval: 0
-        # when a check lands on red, ask the user whether to write a handoff
-        handoffOffer: true
+        # when a check lands on red, the composer shows a yes/no handoff popup
+        # (the client reads the verdict directly; no config needed)
         # only root conversations, not every subagent session
         rootsOnly: true
         # inject a short model-facing reminder after a manual /guard verdict

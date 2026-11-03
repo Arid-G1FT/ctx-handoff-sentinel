@@ -26,6 +26,7 @@ import {
   applyGuardEvent,
   assessReport,
   buildAdviceMessage,
+  buildHandoffInstruction,
   buildHandoffMarkdown,
   buildProbePrompt,
   buildStatusText,
@@ -61,11 +62,48 @@ const DEFAULTS = {
   pressureProbe: true,
   pressureThreshold: 0.6,
   stepProbeInterval: 0,
-  // When a check lands on red, ask the user whether to write a handoff.
-  handoffOffer: true,
 }
 
 const VIEW_CACHE = new WeakMap()
+
+/** Client -> host endpoint used by the red-verdict handoff popup. */
+const HANDOFF_ROUTE = '/api/dsh-context-guard/handoff'
+
+/** Read a small JSON body from a Node request; returns null on malformed input. */
+function readJsonBody(request) {
+  return new Promise((resolve) => {
+    const chunks = []
+    let bytes = 0
+    request.on('data', (chunk) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      bytes += buffer.length
+      if (bytes > 64 * 1024) return
+      chunks.push(buffer)
+    })
+    request.on('end', () => {
+      try {
+        const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+        resolve(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null)
+      } catch {
+        resolve(null)
+      }
+    })
+    request.on('error', () => resolve(null))
+  })
+}
+
+/** Same-origin check for the popup endpoint; non-browser callers (no Origin) pass. */
+function isSameOriginRequest(request) {
+  const origin = request.headers?.origin
+  if (typeof origin !== 'string' || origin.length === 0) return true
+  const host = request.headers?.host
+  if (typeof host !== 'string' || host.length === 0) return false
+  try {
+    return new URL(origin).host === host
+  } catch {
+    return false
+  }
+}
 
 function boolOption(value, fallback) {
   if (typeof value === 'boolean') return value
@@ -102,7 +140,6 @@ function normalizeOptions(config) {
     pressureProbe: boolOption(raw.pressureProbe, DEFAULTS.pressureProbe),
     pressureThreshold: numberOption(raw.pressureThreshold, DEFAULTS.pressureThreshold, 0.1, 0.95),
     stepProbeInterval: numberOption(raw.stepProbeInterval, DEFAULTS.stepProbeInterval, 0, 1000),
-    handoffOffer: boolOption(raw.handoffOffer, DEFAULTS.handoffOffer),
   }
 }
 
@@ -152,7 +189,6 @@ export function apply(ctx, config) {
 
   const timers = new Map()
   const lastAutoAt = new Map()
-  const lastOfferAt = new Map()
   const stepCounts = new Map()
 
   /** Read the guard projection state; never throw into a command or event handler. */
@@ -323,43 +359,83 @@ export function apply(ctx, config) {
   }
 
   /**
-   * Ask the user, in-conversation, whether to write a handoff.
+   * Ask the model to write the handoff itself.
    *
-   * Injected without waking the driver: it lands as a notice, and the user's
-   * next reply authorises the model to write the document. The question names
-   * the sections so "写交接单" is enough of an answer.
+   * The plugin only knows the deterministic state; the reasons, rejected
+   * alternatives and failed attempts live in the model's context. So instead of
+   * emitting a sparse file, the request wakes the model with a framework prompt
+   * and lets it write the document with its own tools.
    */
-  const offerHandoff = (session, agent, outcome) => {
-    if (!options.handoffOffer) return
-    if (outcome.assessment === null || outcome.assessment.level !== 'red') return
-    if (agent === undefined || typeof agent.inject !== 'function') return
-    const last = lastOfferAt.get(session.id) ?? 0
-    if (Date.now() - last < options.cooldownMs) return
-    lastOfferAt.set(session.id, Date.now())
-    const text = [
-      '🔴 交接哨兵判定为红：上下文已经明显不可靠，建议现在交接。',
-      '',
-      '要我写交接单吗？回复「写交接单」我就生成一份，包含：',
-      '- 目标与完成标准（可验收）',
-      '- 当前状态：已完成什么、验证过什么（命令 + 结果）',
-      '- 关键决策与理由，含被否决的方案',
-      '- 涉及文件清单：路径 + 改了什么 + 为什么',
-      '- 已知坑与失败尝试',
-      '- 下一步 3–5 条具体动作',
-      '- 不可动约束（风格、环境、不能碰的部分）',
-      '',
-      '新对话直接读这份文件即可，不用再重述项目背景。回复「不用」继续当前工作；也可以直接输入 `/guard handoff`。',
-    ].join('\n')
-    agent.inject(
-      createInboxMessage({
-        content: [{ type: 'text', text }],
-        source: {
-          kind: PROBE_SOURCE,
-          form: 'notice',
-          summary: '🔴 要生成交接单吗？回复「写交接单」',
-        },
-      }),
-    )
+  const requestHandoff = (session, agent) => {
+    if (agent === undefined || typeof agent.followup !== 'function') return false
+    const state = readState(session)
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const draftPath = `${options.handoffDir}/HANDOFF-${stamp}.md`
+    try {
+      agent.followup(
+        createInboxMessage({
+          content: [{ type: 'text', text: buildHandoffInstruction(state, { draftPath }) }],
+          source: { kind: PROBE_SOURCE, form: 'notice', summary: '交接单请求' },
+        }),
+      )
+      return true
+    } catch (error) {
+      logger.warn(`dsh-context-guard: cannot ask the model to write a handoff: ${String(error)}`)
+      return false
+    }
+  }
+
+  /** Register the client -> host decision endpoint used by the red-verdict popup. */
+  const registerHandoffRoute = () => {
+    const install = (server) => {
+      if (server === undefined || server === null || typeof server.register !== 'function') return false
+      try {
+        server.register({
+          kind: 'exact',
+          path: HANDOFF_ROUTE,
+          handler: async (request, response) => {
+            const send = (code, value) => {
+              response.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+              response.end(JSON.stringify(value))
+            }
+            if (request.method !== 'POST') return send(405, { ok: false, error: 'POST only' })
+            if (!isSameOriginRequest(request)) return send(403, { ok: false, error: 'forbidden' })
+            const body = await readJsonBody(request)
+            const sessionId = body !== null && typeof body.sessionId === 'string' ? body.sessionId : ''
+            const decision = body !== null && (body.decision === 'yes' || body.decision === 'no') ? body.decision : ''
+            if (sessionId.length === 0 || decision.length === 0) {
+              return send(400, { ok: false, error: 'sessionId and decision are required' })
+            }
+            if (decision === 'no') return send(200, { ok: true, decision })
+            const agent = ctx.agents.get(sessionId)
+            if (agent === undefined) return send(404, { ok: false, error: 'session is not live' })
+            const requested = requestHandoff(agent.session, agent)
+            return send(requested ? 200 : 500, { ok: requested, decision })
+          },
+        })
+        logger.info('dsh-context-guard: handoff decision endpoint registered')
+        return true
+      } catch (error) {
+        logger.warn(`dsh-context-guard: cannot register the handoff endpoint: ${String(error)}`)
+        return false
+      }
+    }
+
+    if (install(serviceOf('webServer'))) return
+    // The web server may mount after this plugin. Cordis's dynamic injection
+    // calls back once it is available; otherwise the dock falls back to the
+    // copy-command button.
+    if (typeof ctx.inject === 'function') {
+      try {
+        ctx.inject(['webServer'], (webCtx) => {
+          install(webCtx.webServer)
+        })
+        return
+      } catch (error) {
+        logger.warn(`dsh-context-guard: cannot wait for webServer: ${String(error)}`)
+      }
+    }
+    logger.info('dsh-context-guard: no webServer service; the handoff popup falls back to /guard handoff')
   }
 
   /**
@@ -393,7 +469,6 @@ export function apply(ctx, config) {
           const outcome = await runBackgroundProbe(session, agent, reason)
           if (outcome !== null) {
             deliverVerdict(agent, outcome)
-            offerHandoff(session, agent, outcome)
             logger.info(`dsh-context-guard: background verdict delivered for ${session.id} (${reason})`)
             return
           }
@@ -489,6 +564,10 @@ export function apply(ctx, config) {
     },
   })
 
+  // The red-verdict popup calls this endpoint; it never asks the user to type
+  // a command. No webServer? The dock falls back to copying /guard handoff.
+  registerHandoffRoute()
+
   // Triggers: a successful compaction means working memory was rewritten;
   // context pressure and the step interval catch long sessions that never
   // compact. All three only decide *when* to test — never how to grade.
@@ -583,7 +662,6 @@ export function apply(ctx, config) {
               }
             }
             deliverVerdict(agent, outcome)
-            offerHandoff(session, agent, outcome)
             // `/guard check` returns the full state of record: a separate
             // `/guard status` run is no longer needed to see the verdict.
             return { kind: 'success', text: buildStatusText(withFreshReport(state, outcome)) }
@@ -659,6 +737,20 @@ export function apply(ctx, config) {
       }
 
       if (command.verb === 'handoff') {
+        // Default: the model writes the document. It is the only participant
+        // that knows why plans were rejected and what was tried and failed, so
+        // asking it beats emitting a sparse file from deterministic state.
+        // `/guard handoff draft` still writes the deterministic fallback.
+        if (command.text !== 'draft' && requestHandoff(session, agent)) {
+          return {
+            kind: 'success',
+            text: [
+              '已把写交接单的请求交给模型。',
+              '它会按十段框架写一份完整文档（授权边界 / 目标与验收 / 进度盘点 / 决策与被否决 / 文件清单 / 坑与失败 / 卡点 / 下一步 / 约束 / 复跑命令），完成后回复文件路径。',
+              '想要不依赖模型的确定性草稿，用 `/guard handoff draft`。',
+            ].join('\n'),
+          }
+        }
         const cwd = typeof session.header?.cwd === 'string' && session.header.cwd.length > 0 ? session.header.cwd : process.cwd()
         let measurement = null
         try {

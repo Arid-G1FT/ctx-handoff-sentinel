@@ -58,11 +58,14 @@ Commands inside a conversation:
 
 Checks also fire automatically on **compaction**, when the next request would use
 more than 60% of the model window, or every N steps (`stepProbeInterval`). When a
-check lands on **red**, the plugin asks whether to write a handoff; answering
-"写交接单" produces a seven-section document (objective, current state with
-verified commands, decisions and rejected options, file list with reasons, known
-traps and failed attempts, 3–5 next steps, constraints) that the next session can
-read instead of re-explaining the project.
+check lands on **red**, a popup above the composer asks whether to write a
+handoff — no command to type. Choosing "write" wakes the model, which writes the
+document itself because only it knows why alternatives were rejected and what was
+tried and failed. The document follows ten sections (authorization boundaries,
+objective and acceptance, a progress table with evidence, decisions and rejected
+options, files with reasons, traps and failed attempts, current blockers, 3–5
+next steps, constraints, and rerun commands), and the next session reads it
+instead of re-explaining the project.
 
 ### Install the skill (for other people)
 
