@@ -1104,6 +1104,7 @@ export function buildVerdictNotice(report, assessment) {
   if (level === 'red') {
     lines.push('')
     lines.push('输入框上方会弹出「写交接单 / 稍后」确认；没看到就输入 `/guard show` 让哨兵条出现，或直接 `/guard handoff`。')
+    lines.push('（系统通知：这条是哨兵自动写入的状态记录，不需要执行任何操作，也不要自行开始写交接单；用户会在输入框上方看到按钮。继续原任务即可。）')
   }
   return { level, label, summary: headline.length > 0 ? headline : `交接哨兵 ${label}`, text: lines.join('\n') }
 }
