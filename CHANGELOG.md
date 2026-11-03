@@ -5,6 +5,15 @@ until they diverge.
 
 ## Unreleased
 
+- **Red verdicts are committed immediately.** `inject()` only lands on the next
+  model step, so a manual `/guard check` that ended the turn left the projection
+  empty: no red state, no popup, no dock. When the agent is not running, a red
+  verdict is now delivered with `followup`, which wakes one step and writes the
+  notice immediately. Green/yellow stay zero-cost injections.
+- **The red popup survives a hidden dock.** It used to be rendered inside the
+  dock component, which returns `null` after the user dismisses the status bar;
+  the prompt now renders independently, and only the status bar stays hidden
+  until `/guard show`.
 - **Pressure and step triggers.** Besides compaction, a background check now
   fires when the next request would use `pressureThreshold` (default 60%) of the
   model window, or every `stepProbeInterval` steps. Long sessions that never

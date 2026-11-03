@@ -342,20 +342,35 @@ export function apply(ctx, config) {
    * human account only.
    */
   const deliverVerdict = (agent, outcome) => {
-    if (agent === undefined || typeof agent.inject !== 'function') return false
+    if (agent === undefined) return false
     const notice = buildVerdictNotice(outcome.report, outcome.assessment)
-    agent.inject(
-      createInboxMessage({
-        content: [{ type: 'text', text: notice.text }],
-        source: {
-          kind: PROBE_SOURCE,
-          form: 'notice',
-          summary: notice.summary,
-          [REPORT_FIELD]: JSON.stringify(outcome.report),
-        },
-      }),
-    )
-    return true
+    const message = createInboxMessage({
+      content: [{ type: 'text', text: notice.text }],
+      source: {
+        kind: PROBE_SOURCE,
+        form: 'notice',
+        summary: notice.summary,
+        [REPORT_FIELD]: JSON.stringify(outcome.report),
+      },
+    })
+    // `inject()` only adds model-facing context: it is committed when the next
+    // step runs. A manual `/guard check` usually ends the turn, so an injected
+    // red verdict would sit in the inbox — the projection (and the popup that
+    // reads it) would stay empty. Wake the idle agent for red so the message is
+    // committed immediately; green/yellow stay zero-cost injections.
+    const red = outcome.assessment !== null && outcome.assessment !== undefined && outcome.assessment.level === 'red'
+    const running = agent.status === 'running'
+    if (red && !running && typeof agent.followup === 'function') {
+      try {
+        agent.followup(message)
+        return 'followup'
+      } catch (error) {
+        logger.warn(`dsh-context-guard: followup delivery failed, falling back to inject: ${String(error)}`)
+      }
+    }
+    if (typeof agent.inject !== 'function') return false
+    agent.inject(message)
+    return 'inject'
   }
 
   /**

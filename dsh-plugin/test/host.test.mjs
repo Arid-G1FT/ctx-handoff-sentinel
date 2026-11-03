@@ -398,10 +398,12 @@ test('context pressure triggers a background check without any compaction', asyn
   for (const cleanup of harness.cleanups) cleanup()
 })
 
-test('red verdict no longer injects a handoff question (the dock asks instead)', async () => {
+test('a running agent receives the red verdict through the inbox, with no question', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'guard-offer-'))
   const activations = []
   const harness = createHarness(cwd, { services: forkServices(activations, 'red') })
+  // Running agents get the zero-cost inject path (it lands in the current run).
+  harness.agent.status = 'running'
   apply(harness.ctx, {
     enabled: true,
     autoProbe: false,
@@ -419,6 +421,31 @@ test('red verdict no longer injects a handoff question (the dock asks instead)',
   // driven by the projection, not in an injected chat message.
   assert.equal(harness.injections.length, 1)
   assert.ok(!harness.injections[0].content[0].text.includes('要我写交接单'))
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
+test('red verdict wakes an idle agent so the popup state is committed', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-red-wake-'))
+  const harness = createHarness(cwd, { services: forkServices([], 'red') })
+  harness.agent.status = 'idle'
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  const result = await harness.commands.get('guard').handler({ agent: harness.agent, rawInput: 'check' })
+  assert.equal(result.kind, 'success')
+  // inject() would only commit on the next step; a red verdict must be durable
+  // immediately (the composer popup reads it from the projection).
+  assert.equal(harness.injections.length, 0)
+  assert.equal(harness.followups.length, 1)
+  assert.match(harness.followups[0].content[0].text, /交接哨兵/)
+  assert.equal(harness.followups[0].role, 'user')
   for (const cleanup of harness.cleanups) cleanup()
 })
 
