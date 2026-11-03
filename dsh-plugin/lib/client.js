@@ -289,10 +289,10 @@ window.__ModuleLoader__.load({
       const [offerState, setOfferState] = useState('idle')
       const [offerError, setOfferError] = useState('')
       if (view === undefined || view === null) return null
-      // Closed means gone: no pill, no placeholder. `/guard show` bumps
-      // `dockEpoch`, which no longer matches the stored value and brings it back.
+      // `×` hides the status bar, not the red-verdict handoff prompt: the
+      // prompt is the one thing a user must see even after dismissing the dock.
       const dockEpoch = String(view.dockEpoch === undefined ? 0 : view.dockEpoch)
-      if (hiddenEpoch === dockEpoch) return null
+      const hidden = hiddenEpoch === dockEpoch
       const active =
         view.compactions > 0 ||
         view.lastCompaction !== null ||
@@ -325,35 +325,44 @@ window.__ModuleLoader__.load({
         }
       }
 
-      return h('div', { className: 'dcg_dock', 'data-context-guard': true },
-        offerVisible
-          ? h('div', { className: 'dcg_offer', role: 'dialog', 'aria-label': '是否现在写交接单' },
-              h('div', { className: 'dcg_offer_text' },
-                '🔴 上下文已经明显不可靠，建议现在交接。',
-                h('span', { className: 'dcg_offer_meta' },
-                  offerError.length > 0
-                    ? '发送失败：' + offerError
-                    : '生成一份完整交接单后，新对话读它即可继续，不用重述项目背景。'),
-              ),
-              h('div', { className: 'dcg_offer_actions' },
-                h('button', {
-                  type: 'button',
-                  className: 'dcg_btn dcg_btn_primary',
-                  disabled: offerState === 'sending',
-                  onClick: () => decide('yes'),
-                }, offerState === 'sending' ? '请求中…' : '写交接单'),
-                h('button', {
-                  type: 'button',
-                  className: 'dcg_btn',
-                  disabled: offerState === 'sending',
-                  onClick: () => decide('no'),
-                }, '稍后'),
-              ),
-            )
-          : null,
+      const popup = offerVisible
+        ? h('div', { className: 'dcg_offer', role: 'dialog', 'aria-label': '是否现在写交接单' },
+            h('div', { className: 'dcg_offer_text' },
+              '🔴 上下文已经明显不可靠，建议现在交接。',
+              h('span', { className: 'dcg_offer_meta' },
+                offerError.length > 0
+                  ? '发送失败：' + offerError
+                  : '生成一份完整交接单后，新对话读它即可继续，不用重述项目背景。'),
+            ),
+            h('div', { className: 'dcg_offer_actions' },
+              h('button', {
+                type: 'button',
+                className: 'dcg_btn dcg_btn_primary',
+                disabled: offerState === 'sending',
+                onClick: () => decide('yes'),
+              }, offerState === 'sending' ? '请求中…' : '写交接单'),
+              h('button', {
+                type: 'button',
+                className: 'dcg_btn',
+                disabled: offerState === 'sending',
+                onClick: () => decide('no'),
+              }, '稍后'),
+            ),
+          )
+        : null
+      const doneLine =
         offerState === 'done'
           ? h('div', { className: 'dcg_offer_done' }, '已把写交接单的请求交给模型，完成后会把路径发到对话里。')
-          : null,
+          : null
+      // A hidden dock still shows the red prompt; only the status bar is hidden.
+      if (hidden) {
+        if (popup === null && doneLine === null) return null
+        return h('div', { className: 'dcg_dock', 'data-context-guard': true }, popup, doneLine)
+      }
+
+      return h('div', { className: 'dcg_dock', 'data-context-guard': true },
+        popup,
+        doneLine,
         h('div', { className: 'dcg_bar', title: view.advice },
           h(VerdictDot, { tone }),
           h('span', { className: 'dcg_title' }, '交接哨兵'),

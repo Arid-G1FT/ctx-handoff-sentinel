@@ -91,7 +91,7 @@ dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin
 - `交接单` = 复制 `/guard handoff`
 - `状态` = 复制 `/guard status`
 - `详情` 展开：固定约束、证据核对（漏报/未记录/约束命中）、报告内容、下一步/验证命令、原生写入文件。
-- `×` 关闭哨兵条：**完全隐藏，不留小圆条、不占位**；后台自检照常运行，`/guard check` 仍可用。输入 `/guard show` 随时恢复（隐藏状态记在浏览器 localStorage，刷新后保持）。
+- `×` 关闭哨兵条：**完全隐藏状态条，不留小圆条、不占位**；后台自检照常运行，`/guard check` 仍可用。**红色交接弹窗不受影响**，仍会出现在输入框上方。输入 `/guard show` 随时恢复状态条（隐藏状态记在浏览器 localStorage，刷新后保持）。
 
 按钮只复制命令，不会自动发消息；你可以先改一下再发。
 
@@ -237,7 +237,8 @@ subagents / session events / client slots）。**DSH 升级后的核对清单、
 ## 排障
 
 - **`/guard` 找不到**：Host 侧代码在应用启动时加载，**必须完全重启 DSH**；只刷新页面不够。
-- **Dock 没出现**：Dock 只在会话里发生过压缩、自检或判定后出现；新会话空白时故意不占位置。先 `/guard status` 或 `/guard check`。
+- **Dock 没出现**：Dock 只在会话里发生过压缩、自检或判定后出现；新会话空白时故意不占位置。先 `/guard status` 或 `/guard check`。如果之前点过 `×`，状态条会一直隐藏，`/guard show` 恢复；**红色交接弹窗不依赖状态条**，隐藏时也会出现。
+- **判红但没看到弹窗**：确认已完全重启 DSH（客户端模块在启动时加载）；仍没有就 `/guard show` 或直接 `/guard handoff`。弹窗本身不依赖 dock 可见性。
 - **自动自检太吵**：把 `autoProbe` 改成 `false`，只保留 `/guard` 手动触发。
 - **模型没按要求输出 JSON**：Dock 会显示「已回答，待人工判定」，直接用 `/guard green|yellow|red` 记录你的判断即可；插件不会替你猜。
 - **想撤销判定**：`/guard reset` 清空自检/判定，再用 `/guard check` 重测。

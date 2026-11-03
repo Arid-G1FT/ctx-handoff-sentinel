@@ -938,7 +938,7 @@ export function effectiveVerdict(state) {
 export function adviceFor(level) {
   if (level === 'green') return '🟢 可继续，甚至可以扩范围。'
   if (level === 'yellow') return '🟡 只允许把当前子目标做完，不要再扩范围。'
-  if (level === 'red') return '🔴 立即交接：运行 /guard handoff，然后新开对话粘贴交接单。'
+  if (level === 'red') return '🔴 立即交接：输入框上方的弹窗点「写交接单」；没看到就 /guard show 或 /guard handoff。'
   return '⚪ 还没有可判定的行为测试结果。'
 }
 
@@ -1100,6 +1100,10 @@ export function buildVerdictNotice(report, assessment) {
     lines.push(
       `证据：实际写入 ${numberOr(counts.actualFiles, 0)} · 报告 ${numberOr(counts.reportedFiles, 0)} · 漏报 ${numberOr(counts.missing, 0)} · 未记录 ${numberOr(counts.phantom, 0)}`,
     )
+  }
+  if (level === 'red') {
+    lines.push('')
+    lines.push('输入框上方会弹出「写交接单 / 稍后」确认；没看到就输入 `/guard show` 让哨兵条出现，或直接 `/guard handoff`。')
   }
   return { level, label, summary: headline.length > 0 ? headline : `交接哨兵 ${label}`, text: lines.join('\n') }
 }
