@@ -2,6 +2,15 @@
 
 [English](README.en.md) · [中文](README.zh-CN.md)
 
+> **已在 DSH 插件市场上架**（[市场页面](https://awesome-dsh-plugin.com/p/Arid-G1FT/ctx-handoff-sentinel--dsh-plugin/)，分类 `session`）：
+>
+> ```sh
+> # 把 desktop 换成你自己的 profile 名
+> dsh plugin --profile desktop add github:Arid-G1FT/ctx-handoff-sentinel#path:/dsh-plugin
+> ```
+>
+> 也可以打开 DSH → **插件 → 发现**，搜索 `ctx-handoff-sentinel` / 「交接哨兵」一键安装；装完完全重启 DSH。
+
 在上下文开始腐烂之前，判断**这段对话还能不能自证**——而不是靠轮数、占用率或压缩次数猜。
 
 同一个东西在这里有两种形态：

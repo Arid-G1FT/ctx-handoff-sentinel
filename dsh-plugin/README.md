@@ -47,7 +47,16 @@
 
 ## 安装
 
-克隆本仓库后，把插件目录作为本地 bundle 链入 profile：
+**已上架 DSH 插件市场**（[市场页面](https://awesome-dsh-plugin.com/p/Arid-G1FT/ctx-handoff-sentinel--dsh-plugin/)），可以直接从市场条目安装：
+
+```sh
+# 把 desktop 换成你自己的 profile 名
+dsh plugin --profile desktop add github:Arid-G1FT/ctx-handoff-sentinel#path:/dsh-plugin
+```
+
+也可以打开 DSH → **插件 → 发现**，搜索 `ctx-handoff-sentinel` / 「交接哨兵」一键安装。
+
+本地开发/调试时，也可以把仓库里的插件目录作为本地 bundle 链入 profile：
 
 ```sh
 dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin

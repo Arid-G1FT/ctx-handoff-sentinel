@@ -2,6 +2,14 @@
 
 [English](README.en.md) · [中文](README.zh-CN.md)
 
+> **Listed in the DSH plugin market** ([market page](https://awesome-dsh-plugin.com/p/Arid-G1FT/ctx-handoff-sentinel--dsh-plugin/), category `session`):
+>
+> ```sh
+> dsh plugin --profile desktop add github:Arid-G1FT/ctx-handoff-sentinel#path:/dsh-plugin
+> ```
+>
+> Or open DSH → **Plugins → Discover**, search for `ctx-handoff-sentinel`, and install it in one click. Restart DSH afterwards.
+
 Decide **whether a conversation can still prove itself** before the context rots —
 instead of guessing from turn count, context percentage, or compaction count.
 

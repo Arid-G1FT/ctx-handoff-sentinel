@@ -6,7 +6,22 @@
 
 [English](README.en.md) · [中文](README.zh-CN.md)
 
+**已在 DSH 插件市场上架** · [市场页面](https://awesome-dsh-plugin.com/p/Arid-G1FT/ctx-handoff-sentinel--dsh-plugin/) · 分类 `session`
+
 </div>
+
+---
+
+## 安装（DSH 插件市场） · Install from the market
+
+插件已上架 [awesome-dsh-plugin](https://awesome-dsh-plugin.com)（DSH 市场的数据源）：
+
+```sh
+# 把 desktop 换成你自己的 profile 名
+dsh plugin --profile desktop add github:Arid-G1FT/ctx-handoff-sentinel#path:/dsh-plugin
+```
+
+或者打开 DSH → **插件 → 发现**，搜索 `ctx-handoff-sentinel` / 「交接哨兵」一键安装。装完完全重启 DSH。
 
 ---
 
