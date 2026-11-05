@@ -138,21 +138,20 @@ dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin
 
 ### 与 billion-context 对齐
 
-billion-context 的压缩阈值是 `compress.maxContextLimit`，**默认 `"75%"`**：历史超过窗口 75% 时立即触发压缩。想让它和哨兵在同一占用点汇合：
+billion-context 的压缩阈值是 `compress.maxContextLimit`，**默认 `"75%"`**：历史超过窗口 75% 时立即触发压缩。推荐“先测再压”，让哨兵提前一点拿到判定：
 
 ```yaml
 # 哨兵 profile patch
 - id: dsh-context-guard
   config:
     pressureProbe: true
-    pressureThreshold: 0.75   # 与 compress.maxContextLimit 保持一致
+    pressureThreshold: 0.70   # 比 compress.maxContextLimit（0.75）提前 5%
 ```
 
-- 两边数值保持同一个：billion-context 改 `0.8`，这里也改成 `0.8`；它改 `"80%"` 就写 `0.8`。
-- **压完自动再测**：native 压缩会触发 `compaction/end` → `autoProbe`；代理层压缩没有这个事件，就由上面的“请求骤降”触发器补测。两种路径共用 `cooldownMs`，不会重复自检。
-- 想保留“压缩前先测一次”，把 `pressureThreshold` 设得比压缩阈值低一点（例如压缩 0.75、哨兵 0.7），两条都会触发。
-
-三者共用 `cooldownMs`，且同一时刻不会重复排队。
+- **先测再压**：0.70 触发一次行为自检，75% 才由 billion-context 压缩；判红时有 5% 余量决定是否交接。
+- **压完自动再测**：native 压缩会触发 `compaction/end` → `autoProbe`；代理层压缩没有这个事件，就由上面的“请求骤降”触发器补测。**压缩触发的自检不受 `cooldownMs` 限制**——压缩重写了工作记忆，即使几分钟前刚因压力测过也要重测；压力/步数触发仍受冷却限制，避免烧钱。
+- 如果压缩阈值改成 0.80，哨兵相应改成 0.75，保持 5% 提前量；想同一时刻测就设成相同数值（压完再测）。
+- 压力/步数触发共用 `cooldownMs`（600s）；压缩触发不受冷却限制，但同一时刻不会重复排队（`queued` 状态直接跳过）。
 
 ### 判红后弹出交接确认（输入框上方）
 

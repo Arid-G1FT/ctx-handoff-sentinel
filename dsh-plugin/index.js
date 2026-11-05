@@ -459,16 +459,21 @@ export function apply(ctx, config) {
    * context pressure, step interval). The trigger only decides *when*; the
    * verdict never depends on it.
    */
-  const runAutoProbe = (session, reason = 'auto') => {
+  const runAutoProbe = (session, reason = 'auto', force = false) => {
     const agent = agentOf(session)
     if (agent === undefined) return
     if (!isRootSession(session)) return
     const now = Date.now()
     const state = readState(session)
     if (state.probe.status === 'queued') return
-    if (state.probe.answerAt !== null && now - state.probe.answerAt < options.cooldownMs) return
-    const last = lastAutoAt.get(session.id) ?? 0
-    if (now - last < options.cooldownMs) return
+    // A compression rewrites working memory, so its probe must not be skipped
+    // just because a pressure/steps probe ran minutes earlier. Pressure and
+    // step triggers keep the cooldown; compaction and compression-drop force.
+    if (!force) {
+      if (state.probe.answerAt !== null && now - state.probe.answerAt < options.cooldownMs) return
+      const last = lastAutoAt.get(session.id) ?? 0
+      if (now - last < options.cooldownMs) return
+    }
     lastAutoAt.set(session.id, now)
 
     const run = async () => {
@@ -514,12 +519,8 @@ export function apply(ctx, config) {
     if (state.probe.forCompactionSeq !== compactionSeq) return
     if (state.lastCompaction?.seq !== compactionSeq) return
     if (state.lastCompaction?.failed === true) return
-    const now = Date.now()
-    if (state.probe.promptAt !== null && now - state.probe.promptAt < options.cooldownMs) {
-      logger.info('dsh-context-guard: compaction probe is within the cooldown, leaving it due')
-      return
-    }
-    runAutoProbe(session, 'compaction')
+    // Compaction rewrote memory: probe even if a pressure check just ran.
+    runAutoProbe(session, 'compaction', true)
   }
 
   /** Current request size as a fraction of the model window, when measurable. */
@@ -581,7 +582,7 @@ export function apply(ctx, config) {
     logger.info(
       `dsh-context-guard: request shrank ${previous} -> ${total} tokens, treating it as an external compression and re-checking`,
     )
-    runAutoProbe(session, 'compression-drop')
+    runAutoProbe(session, 'compression-drop', true)
   }
 
   /** Defer the probe so the compaction turn has a chance to settle. */

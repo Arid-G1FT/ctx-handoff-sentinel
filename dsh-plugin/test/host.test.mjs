@@ -437,6 +437,45 @@ test('a sudden request drop (external compressor) re-runs the check', async () =
   for (const cleanup of harness.cleanups) cleanup()
 })
 
+test('a compaction probe bypasses the cooldown after a pressure check', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-force-'))
+  const activations = []
+  const services = {
+    ...forkServices(activations),
+    tokenMeter: { measure: () => ({ totalTokens: 700 }) },
+  }
+  const harness = createHarness(cwd, { services })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: true,
+    pressureProbe: true,
+    pressureThreshold: 0.6,
+    probeDelayMs: 0,
+    cooldownMs: 600000,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  harness.feed({
+    type: 'request/context',
+    seq: 1,
+    time: 1000,
+    data: { provider: 'deepseek', model: 'deepseek-flash', contextWindow: 1000 },
+  })
+  harness.feed({ type: 'turn/end', seq: 2, time: 2000, data: { turn: 1 } })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(activations.length, 1, 'pressure crossing the threshold runs one check')
+
+  // The pressure check just ran (inside the 10-minute cooldown). A compaction
+  // rewrites working memory, so its probe must still run.
+  harness.feed(summary(3))
+  harness.feed(end(4))
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(activations.length, 2, 'compaction probe bypasses the cooldown')
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
 test('a running agent receives the red verdict through the inbox, with no question', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'guard-offer-'))
   const activations = []

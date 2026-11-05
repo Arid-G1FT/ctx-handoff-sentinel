@@ -12,8 +12,10 @@ until they diverge.
   a ≥10k-token request as a compression, re-running the check. The cooldown
   suppresses duplicates when a native compaction also fired.
 - **billion-context alignment.** Its `compress.maxContextLimit` defaults to
-  `"75%"`; set `pressureThreshold: 0.75` to test at the same point. Docs explain
-  how to keep the two numbers in sync.
+  `"75%"`; docs recommend `pressureThreshold: 0.70` so the behavioral check
+  runs before the fold, then again after it. Compression-triggered probes
+  (native compaction and compression-drop) bypass the cooldown, because a fold
+  rewrites working memory; pressure and step probes keep it.
 - **Red verdicts are committed immediately.** `inject()` only lands on the next
   model step, so a manual `/guard check` that ended the turn left the projection
   empty: no red state, no popup, no dock. When the agent is not running, a red
