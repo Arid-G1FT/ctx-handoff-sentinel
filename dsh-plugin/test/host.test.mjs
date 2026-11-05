@@ -398,6 +398,45 @@ test('context pressure triggers a background check without any compaction', asyn
   for (const cleanup of harness.cleanups) cleanup()
 })
 
+test('a sudden request drop (external compressor) re-runs the check', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'guard-drop-'))
+  const activations = []
+  let total = 200000
+  const services = {
+    ...forkServices(activations),
+    tokenMeter: { measure: () => ({ totalTokens: total }) },
+  }
+  const harness = createHarness(cwd, { services })
+  apply(harness.ctx, {
+    enabled: true,
+    autoProbe: false,
+    pressureProbe: false,
+    probeDelayMs: 0,
+    cooldownMs: 0,
+    rootsOnly: true,
+    injectAdvice: true,
+    handoffDir: '.dsh-handoff',
+  })
+
+  // First observation only records the baseline.
+  harness.feed({ type: 'turn/end', seq: 1, time: 1000, data: { turn: 1 } })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(activations.length, 0)
+
+  // Noise: 15% off is not a fold.
+  total = 170000
+  harness.feed({ type: 'turn/end', seq: 2, time: 2000, data: { turn: 2 } })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(activations.length, 0)
+
+  // A 65% drop is a fold performed outside DSH (billion-context and friends).
+  total = 60000
+  harness.feed({ type: 'turn/end', seq: 3, time: 3000, data: { turn: 3 } })
+  await new Promise((resolve) => setTimeout(resolve, 40))
+  assert.equal(activations.length, 1, 'the drop should trigger one background check')
+  for (const cleanup of harness.cleanups) cleanup()
+})
+
 test('a running agent receives the red verdict through the inbox, with no question', async () => {
   const cwd = await mkdtemp(join(tmpdir(), 'guard-offer-'))
   const activations = []

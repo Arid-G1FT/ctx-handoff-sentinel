@@ -22,7 +22,10 @@
         cooldownMs: 600000
         # structural triggers: when to test, never how to grade.
         # fire a background check once the next request would use this much of
-        # the window (0.1-0.95); catches long sessions that never compact
+        # the window (0.1-0.95); catches long sessions that never compact.
+        # using billion-context? set this to its compress.maxContextLimit
+        # (default "75%" -> 0.75); external folds are also caught by the
+        # request-drop detector, so the post-compression check still runs.
         pressureProbe: true
         pressureThreshold: 0.6
         # fire every N steps; 0 disables the step trigger

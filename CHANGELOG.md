@@ -5,6 +5,15 @@ until they diverge.
 
 ## Unreleased
 
+- **External compression is detected and re-checked.** Proxy-level compressors
+  (billion-context and friends) fold history without emitting DSH's
+  `compaction/end`, so the post-compaction probe never fired. At each `turn/end`
+  the sentinel now compares the measured request size and treats a ≥40% drop of
+  a ≥10k-token request as a compression, re-running the check. The cooldown
+  suppresses duplicates when a native compaction also fired.
+- **billion-context alignment.** Its `compress.maxContextLimit` defaults to
+  `"75%"`; set `pressureThreshold: 0.75` to test at the same point. Docs explain
+  how to keep the two numbers in sync.
 - **Red verdicts are committed immediately.** `inject()` only lands on the next
   model step, so a manual `/guard check` that ended the turn left the projection
   empty: no red state, no popup, no dock. When the agent is not running, a red

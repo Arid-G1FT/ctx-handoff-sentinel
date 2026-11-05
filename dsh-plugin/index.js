@@ -190,6 +190,7 @@ export function apply(ctx, config) {
   const timers = new Map()
   const lastAutoAt = new Map()
   const stepCounts = new Map()
+  const lastTotals = new Map()
 
   /** Read the guard projection state; never throw into a command or event handler. */
   const readState = (session) => {
@@ -548,6 +549,41 @@ export function apply(ctx, config) {
     runAutoProbe(session, 'pressure')
   }
 
+  /**
+   * Structural trigger for compression that happens outside DSH's own session
+   * events.
+   *
+   * billion-context and other proxy-level compressors fold history in front of
+   * the host, so `compaction/end` never arrives and the normal post-compaction
+   * probe would not fire. The observable trace is a sudden, large drop in the
+   * measured request size; re-test after it. The cooldown in `runAutoProbe`
+   * suppresses duplicates when a native compaction event also fired.
+   */
+  const maybeCompressionDropProbe = (session) => {
+    if (agentOf(session) === undefined || !isRootSession(session)) return
+    const meter = serviceOf('tokenMeter')
+    if (meter === undefined || typeof meter.measure !== 'function') return
+    let total = null
+    try {
+      const measurement = meter.measure(session)
+      total = typeof measurement?.totalTokens === 'number' ? measurement.totalTokens : null
+    } catch {
+      return
+    }
+    if (total === null) return
+    const previous = lastTotals.get(session.id)
+    lastTotals.set(session.id, total)
+    if (previous === undefined) return
+    const dropped = previous - total
+    // Estimates move by a few percent on their own; a real fold removes at
+    // least 40% of a 10k+ request.
+    if (dropped < 10000 || total > previous * 0.6) return
+    logger.info(
+      `dsh-context-guard: request shrank ${previous} -> ${total} tokens, treating it as an external compression and re-checking`,
+    )
+    runAutoProbe(session, 'compression-drop')
+  }
+
   /** Defer the probe so the compaction turn has a chance to settle. */
   const scheduleAutoProbe = (session, compactionSeq) => {
     if (!options.autoProbe) return
@@ -610,6 +646,11 @@ export function apply(ctx, config) {
         maybePressureProbe(session)
       } catch (error) {
         logger.warn(`dsh-context-guard: pressure trigger failed: ${String(error)}`)
+      }
+      try {
+        maybeCompressionDropProbe(session)
+      } catch (error) {
+        logger.warn(`dsh-context-guard: compression-drop trigger failed: ${String(error)}`)
       }
     }
   })
@@ -818,6 +859,7 @@ export function apply(ctx, config) {
     for (const timer of timers.values()) clearTimeout(timer)
     timers.clear()
     lastAutoAt.clear()
+    lastTotals.clear()
   }, 'dsh-context-guard: timers')
 
   logger.info(

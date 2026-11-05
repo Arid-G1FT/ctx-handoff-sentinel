@@ -120,20 +120,37 @@ dsh plugin --profile desktop add link:/path/to/ctx-handoff-sentinel/dsh-plugin
     probeDelayMs: 1200    # 压缩结束后稍等再排入，避免和压缩收尾抢同一时刻
     cooldownMs: 600000    # 10 分钟内不重复自动运行，避免自检自身再触发压缩时循环
     pressureProbe: true   # 上下文占用超过阈值也自动测一次（不等压缩）
-    pressureThreshold: 0.6 # 下一请求预估占窗口 60% 即触发
+    pressureThreshold: 0.6 # 下一请求预估占窗口多少比例时触发（用 billion-context 时改成与它的压缩阈值一致，见下）
     stepProbeInterval: 0  # 每 N 步自动测一次；0 = 关闭
     rootsOnly: true       # 只测主对话，不测每个子代理
     injectAdvice: true    # /guard green|yellow|red 后给模型注入一条简短行为约束
     handoffDir: '.dsh-handoff'  # 交接单写在会话 cwd 下
 ```
 
-### 什么时候测（三个结构触发）
+### 什么时候测（四个结构触发）
 
 判定永远只看行为测试；**结构信号只决定「什么时候测」**：
 
 1. **压缩后**（`autoProbe`）：成功压缩会让模型的工作记忆被重写。
 2. **上下文压力**（`pressureProbe`）：`tokenMeter` 的下一请求预估占窗口比例 ≥ `pressureThreshold` 时触发。长会话可能一直不压缩（例如 1M 窗口跑到 60% 也没有一次压缩），这条触发让它在明显变慢之前就被测到。
 3. **步数间隔**（`stepProbeInterval`）：每 N 步测一次，默认关闭。
+4. **外部压缩后的请求骤降**：代理层压缩器（billion-context 等）折叠历史时不会发 DSH 的 `compaction/end`。哨兵在每轮结束时记录请求 token，发现骤降 ≥40% 且 ≥10k token 就当作一次压缩，自动补做一次自检。这条不依赖任何插件，纯靠 `tokenMeter` 观测。
+
+### 与 billion-context 对齐
+
+billion-context 的压缩阈值是 `compress.maxContextLimit`，**默认 `"75%"`**：历史超过窗口 75% 时立即触发压缩。想让它和哨兵在同一占用点汇合：
+
+```yaml
+# 哨兵 profile patch
+- id: dsh-context-guard
+  config:
+    pressureProbe: true
+    pressureThreshold: 0.75   # 与 compress.maxContextLimit 保持一致
+```
+
+- 两边数值保持同一个：billion-context 改 `0.8`，这里也改成 `0.8`；它改 `"80%"` 就写 `0.8`。
+- **压完自动再测**：native 压缩会触发 `compaction/end` → `autoProbe`；代理层压缩没有这个事件，就由上面的“请求骤降”触发器补测。两种路径共用 `cooldownMs`，不会重复自检。
+- 想保留“压缩前先测一次”，把 `pressureThreshold` 设得比压缩阈值低一点（例如压缩 0.75、哨兵 0.7），两条都会触发。
 
 三者共用 `cooldownMs`，且同一时刻不会重复排队。
 
