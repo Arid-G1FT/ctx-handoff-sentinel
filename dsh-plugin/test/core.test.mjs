@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { resolve } from 'node:path'
 import {
   PROBE_MARKER,
   PROBE_SOURCE,
@@ -20,7 +21,10 @@ import {
   writeFromToolCall,
 } from '../lib/core.js'
 
-const cwd = 'C:\\work\\demo'
+// Native paths: CI runs this same suite on ubuntu-latest, where a hardcoded
+// `C:\work\demo` cwd/abs never matches a path resolved with POSIX semantics.
+const cwd = process.platform === 'win32' ? 'C:/work/demo' : '/work/demo'
+const native = (relativePath) => resolve(cwd, relativePath)
 
 function baseState() {
   return initialGuardState({ cwd })
@@ -62,6 +66,16 @@ test('compaction makes a probe due but does not decide a verdict', () => {
   assert.equal(state.probe.status, 'due')
   assert.equal(state.lastCompaction.shadowedTokens, 12000)
   assert.equal(effectiveVerdict(state), null)
+})
+
+test('compaction wire view is lossless JSON without optional metadata', () => {
+  let state = applyGuardEvent(baseState(), event('compaction/end', { turn: 1 }, 10))
+  assert.equal(state.lastCompaction.sourceCommandId, null)
+  assert.equal(state.lastCompaction.error, null)
+  assert.deepEqual(buildView(state), JSON.parse(JSON.stringify(buildView(state))))
+
+  state = compact(baseState())
+  assert.deepEqual(buildView(state), JSON.parse(JSON.stringify(buildView(state))))
 })
 
 test('a probe message is recognized only for the plugin source kind', () => {
@@ -122,8 +136,8 @@ test('turn end parses the JSON report and assesses it', () => {
 test('a missing file downgrades to yellow, a phantom file is flagged', () => {
   const state = compact(baseState())
   state.files = [
-    { path: 'src/a.js', abs: 'C:\\work\\demo\\src\\a.js', writes: 2, added: 3, removed: 1, lastAt: 1 },
-    { path: 'src/b.js', abs: 'C:\\work\\demo\\src\\b.js', writes: 1, added: 2, removed: 0, lastAt: 2 },
+    { path: 'src/a.js', abs: native('src/a.js'), writes: 2, added: 3, removed: 1, lastAt: 1 },
+    { path: 'src/b.js', abs: native('src/b.js'), writes: 1, added: 2, removed: 0, lastAt: 2 },
   ]
   const result = assessReport(state, {
     verdict: 'yellow',
@@ -271,7 +285,7 @@ test('bookkeeping noise does not demote a green self-report', () => {
   const state = compact(baseState())
   state.files = Array.from({ length: 12 }, (_, i) => ({
     path: `src/f${i}.js`,
-    abs: `C:\\work\\demo\\src\\f${i}.js`,
+    abs: native(`src/f${i}.js`),
     writes: 1,
     added: 1,
     removed: 0,
@@ -309,7 +323,7 @@ test('major omissions and evidence-free reports still demote', () => {
   const state = compact(baseState())
   state.files = Array.from({ length: 6 }, (_, i) => ({
     path: `src/f${i}.js`,
-    abs: `C:\\work\\demo\\src\\f${i}.js`,
+    abs: native(`src/f${i}.js`),
     writes: 1,
     added: 1,
     removed: 0,
@@ -335,7 +349,7 @@ test('losing almost all file memory is red, not yellow', () => {
   const state = compact(baseState())
   state.files = Array.from({ length: 64 }, (_, i) => ({
     path: `outputs/Kimi_DeepSeek_20261101/F${i}.md`,
-    abs: `C:\\work\\demo\\outputs\\Kimi_DeepSeek_20261101\\F${i}.md`,
+    abs: native(`outputs/Kimi_DeepSeek_20261101/F${i}.md`),
     writes: 1,
     added: 1,
     removed: 0,
@@ -367,7 +381,7 @@ test('a report that lists no files at all is red once >=10 files were written', 
   const state = compact(baseState())
   state.files = Array.from({ length: 12 }, (_, i) => ({
     path: `src/f${i}.js`,
-    abs: `C:\\work\\demo\\src\\f${i}.js`,
+    abs: native(`src/f${i}.js`),
     writes: 1,
     added: 1,
     removed: 0,

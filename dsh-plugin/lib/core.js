@@ -200,14 +200,16 @@ export function applyGuardEvent(state, event) {
       const lastCompaction = {
         seq: numberOr(event.seq, 0),
         time,
-        compactionId: typeof data.compactionId === 'string' ? data.compactionId : summary?.compactionId,
-        shadowedTokens: summary?.shadowedTokens,
-        shadowedCount: summary?.shadowedCount,
-        provider: summary?.provider,
-        model: summary?.model,
-        sourceCommandId: typeof data.sourceCommandId === 'string' ? data.sourceCommandId : undefined,
+        // Projection summaries cross the Host API as lossless JSON. Optional
+        // metadata must be null, never an own property whose value is undefined.
+        compactionId: (typeof data.compactionId === 'string' ? data.compactionId : summary?.compactionId) ?? null,
+        shadowedTokens: summary?.shadowedTokens ?? null,
+        shadowedCount: summary?.shadowedCount ?? null,
+        provider: summary?.provider ?? null,
+        model: summary?.model ?? null,
+        sourceCommandId: typeof data.sourceCommandId === 'string' ? data.sourceCommandId : null,
         failed,
-        error: failed ? stringOr(data.error?.message, String(data.error)).slice(0, 500) : undefined,
+        error: failed ? stringOr(data.error?.message, String(data.error)).slice(0, 500) : null,
       }
       if (failed) {
         return touch(state, { lastCompaction, lastSummary: null }, time)
